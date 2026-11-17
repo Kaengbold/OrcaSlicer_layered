@@ -199,7 +199,10 @@ std::map<std::string, std::vector<SimpleSettingData>> SettingsFactory::PART_CATE
        {"overhang_4_4_speed", "", 10},
        {"bridge_speed", "", 11},
        {"gap_infill_speed", "", 12},
-       {"internal_bridge_speed", "", 13}}}};
+       {"internal_bridge_speed", "", 13},
+       {"layer_refinement_height", "", 14},
+       {"layer_refinement_scarf_length", "", 15},
+       {"layer_refinement_joint_overlap", "", 16}}}};
 
 std::vector<std::string> SettingsFactory::get_options(const bool is_part)
 {

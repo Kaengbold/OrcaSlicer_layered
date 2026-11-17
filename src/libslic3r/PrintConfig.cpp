@@ -4255,6 +4255,44 @@ void PrintConfigDef::init_fff_params()
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::Disabled_fuzzy));
 
+    def = this->add("layer_refinement_height", coFloat);
+    def->label = L("Fine wall layer height");
+    def->category = L("Quality");
+    def->tooltip = L("Prints the outer surface in several thinner passes per layer, each following the model at its own height, "
+                     "while inner walls and infill keep the normal layer height. This reduces visible layer lines without "
+                     "the print time of a fully fine print.\n\n"
+                     "The value is the target height of one pass. It is adjusted so that a whole number of passes fills each layer. "
+                     "Set it on a part, a modifier or a painted modifier to refine only that area.\n\n"
+                     "Set to 0 to disable. This feature is experimental.");
+    def->sidetext = L("mm");	// millimeters, CIS languages need translation
+    def->min = 0;
+    def->max = 1;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
+    def = this->add("layer_refinement_scarf_length", coFloat);
+    def->label = L("Fine wall scarf length");
+    def->category = L("Quality");
+    def->tooltip = L("Where the fine wall ends on a wall that continues at the normal layer height, the two overlap over this length "
+                     "in steps: the lower passes reach further, and the normal wall is printed thinner where they lie under it.\n\n"
+                     "Set to 0 to end the fine wall without a scarf.");
+    def->sidetext = L("mm");	// millimeters, CIS languages need translation
+    def->min = 0;
+    def->max = 50;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
+    def = this->add("layer_refinement_joint_overlap", coFloat);
+    def->label = L("Fine wall joint overlap");
+    def->category = L("Quality");
+    def->tooltip = L("How far the passes of the fine wall run on into the wall that continues at the normal layer height, "
+                     "to fill the gap left by the rounded end of that wall.");
+    def->sidetext = L("mm");	// millimeters, CIS languages need translation
+    def->min = 0;
+    def->max = 5;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.3));
+
     def = this->add("fuzzy_skin_thickness", coFloat);
     def->label = L("Fuzzy skin thickness");
     def->category = L("Others");

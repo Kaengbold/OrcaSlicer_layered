@@ -853,11 +853,12 @@ void ToolOrdering::collect_extruders(const PrintObject &object, const std::vecto
         for (const LayerRegion *layerm : layer->regions()) {
             const PrintRegion &region = layerm->region();
 
-            if (! layerm->perimeters.entities.empty()) {
+            // Orca: The passes of the layer refinement are walls too, and never overridden.
+            if (! layerm->perimeters.entities.empty() || ! layerm->refinement_passes.empty()) {
                 bool something_nonoverriddable = true;
 
                 if (m_print_config_ptr) { // in this case print->config().print_sequence != PrintSequence::ByObject (see ToolOrdering constructors)
-                    something_nonoverriddable = false;
+                    something_nonoverriddable = ! layerm->refinement_passes.empty();
                     for (const auto& eec : layerm->perimeters.entities) // let's check if there are nonoverriddable entities
                         if (!layer_tools.wiping_extrusions().is_overriddable_and_mark(dynamic_cast<const ExtrusionEntityCollection&>(*eec), *m_print_config_ptr, object, region))
                             something_nonoverriddable = true;

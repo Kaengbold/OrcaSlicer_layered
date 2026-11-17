@@ -636,7 +636,70 @@ void PrintObject::make_perimeters()
     m_print->throw_if_canceled();
     BOOST_LOG_TRIVIAL(debug) << "Generating perimeters in parallel - end";
 
+    this->apply_layer_refinement();
+
     this->set_done(posPerimeters);
+}
+
+// Orca: Slices the object between its layers where a region has a fine wall layer height and lets these layers
+// print their outer surface in thinner passes.
+void PrintObject::apply_layer_refinement()
+{
+    for (Layer *layer : m_layers)
+        for (LayerRegion *layerm : layer->regions())
+            layerm->refinement_passes.clear();
+
+    const PrintConfig &print_config = m_print->config();
+    if (print_config.spiral_mode || print_config.belt_printer)
+        return;
+
+    // The layers shrunk by the elephant foot compensation keep their own outline.
+    const size_t first_layer_idx = m_config.raft_layers == 0 && m_config.elefant_foot_compensation.value > 0. ?
+        size_t(std::max(1, m_config.elefant_foot_compensation_layers.value)) : 1;
+    // Pass count -> layers refined into that many passes.
+    std::map<int, std::vector<size_t>> layers_by_count;
+    for (size_t layer_idx = first_layer_idx; layer_idx < m_layers.size(); ++ layer_idx) {
+        const Layer &layer = *m_layers[layer_idx];
+        for (const LayerRegion *layerm : layer.regions())
+            if (! layerm->slices.empty())
+                if (const int count = layer_refinement_pass_count(layer.height, layerm->region().config().layer_refinement_height.value); count > 1)
+                    if (std::vector<size_t> &layer_ids = layers_by_count[count]; layer_ids.empty() || layer_ids.back() != layer_idx)
+                        layer_ids.emplace_back(layer_idx);
+    }
+    if (layers_by_count.empty())
+        return;
+
+    BOOST_LOG_TRIVIAL(debug) << "Refining layers - start";
+    std::vector<std::map<int, std::vector<ExPolygons>>> sub_slices(m_layers.size());
+    for (const auto &[count, layer_ids] : layers_by_count) {
+        std::vector<float> zs;
+        zs.reserve(layer_ids.size() * count);
+        for (const size_t layer_idx : layer_ids) {
+            const Layer   &layer  = *m_layers[layer_idx];
+            const double   bottom = layer.print_z - layer.height - m_slicing_params.object_print_z_min;
+            for (int pass = 0; pass < count; ++ pass)
+                zs.emplace_back(float(bottom + (pass + 0.5) * layer.height / count));
+        }
+        std::vector<ExPolygons> slices = this->slice_printable_at(zs);
+        auto                    it     = slices.begin();
+        for (const size_t layer_idx : layer_ids) {
+            sub_slices[layer_idx][count].assign(std::make_move_iterator(it), std::make_move_iterator(it + count));
+            it += count;
+        }
+        m_print->throw_if_canceled();
+    }
+    tbb::parallel_for(
+        tbb::blocked_range<size_t>(0, m_layers.size()),
+        [this, &sub_slices](const tbb::blocked_range<size_t>& range) {
+            for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++ layer_idx) {
+                m_print->throw_if_canceled();
+                if (! sub_slices[layer_idx].empty())
+                    m_layers[layer_idx]->apply_refinement(sub_slices[layer_idx]);
+            }
+        }
+    );
+    m_print->throw_if_canceled();
+    BOOST_LOG_TRIVIAL(debug) << "Refining layers - end";
 }
 
 void PrintObject::prepare_infill()
@@ -1785,6 +1848,9 @@ bool PrintObject::invalidate_state_by_config_options(
                opt_key == "outer_wall_line_width"
             || opt_key == "outer_wall_filament_id"
             || opt_key == "inner_wall_filament_id"
+            || opt_key == "layer_refinement_height"
+            || opt_key == "layer_refinement_scarf_length"
+            || opt_key == "layer_refinement_joint_overlap"
             || opt_key == "fuzzy_skin"
             || opt_key == "fuzzy_skin_thickness"
             || opt_key == "fuzzy_skin_point_distance"

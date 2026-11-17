@@ -599,6 +599,9 @@ protected:
     {
         ObjectByExtruder() : support(nullptr), support_extrusion_role(erNone) {}
         const ExtrusionEntityCollection  *support;
+        // Orca: Regions of the object layer with passes of the layer refinement to print with this extruder,
+        // under the layer and before its other extrusions.
+        std::vector<const LayerRegion*>   refinement;
         // erSupportMaterial / erSupportMaterialInterface / erSupportTransition or erMixed.
         ExtrusionRole                     support_extrusion_role;
 

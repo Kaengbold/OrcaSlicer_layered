@@ -3040,6 +3040,9 @@ void TabPrint::build()
         auto optgroup = page->new_optgroup(L("Layer height"), L"param_layer_height");
         optgroup->append_single_option_line("layer_height","quality_settings_layer_height");
         optgroup->append_single_option_line("initial_layer_print_height","quality_settings_layer_height");
+        optgroup->append_single_option_line("layer_refinement_height");
+        optgroup->append_single_option_line("layer_refinement_scarf_length");
+        optgroup->append_single_option_line("layer_refinement_joint_overlap");
         optgroup->append_single_option_line("enable_mixed_color_sublayer");
 
         optgroup = page->new_optgroup(L("Line width"), L"param_line_width");

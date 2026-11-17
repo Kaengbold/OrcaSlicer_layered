@@ -12,6 +12,8 @@
 #include <vector>
 #include <cstddef>
 #include <algorithm>
+#include <cmath>
+#include <map>
 #include <string>
 #include <functional>
 #include "ExPolygon.hpp"
@@ -43,6 +45,17 @@ namespace FillLightning {
 namespace sla {
     class IndexedMesh;
 };
+
+// Orca: Number of passes a layer of `layer_height` is refined into for the fine wall layer height `pass_height`,
+// 1 when the layer is not refined. See docs/HLSD/layer-refinement.md.
+inline int layer_refinement_pass_count(double layer_height, double pass_height)
+{
+    // Thinner passes cannot be extruded reliably.
+    constexpr double min_pass_height = 0.02;
+    if (pass_height <= 0. || layer_height < 2. * min_pass_height)
+        return 1;
+    return std::clamp(int(std::lround(layer_height / pass_height)), 1, int(layer_height / min_pass_height));
+}
 
 class LayerRegion
 {
@@ -89,6 +102,16 @@ public:
     // (this collection contains only ExtrusionEntityCollection objects)
     ExtrusionEntityCollection   fills;
 
+    // Orca: The passes of the layer refinement below the top one, lowest first. They are printed under print_z,
+    // before the other extrusions of the layer. The top pass is printed at print_z and is a part of `perimeters`.
+    struct RefinementPass
+    {
+        // Top of the pass relative to print_z, negative.
+        double                      z_offset;
+        ExtrusionEntityCollection   extrusions;
+    };
+    std::vector<RefinementPass> refinement_passes;
+
     Flow    flow(FlowRole role) const;
     Flow    flow(FlowRole role, double layer_height) const;
     Flow    bridging_flow(FlowRole role, bool thick_bridge = false) const;
@@ -112,7 +135,7 @@ public:
     void    export_region_fill_surfaces_to_svg_debug(const char *name) const;
 
     // Is there any valid extrusion assigned to this LayerRegion?
-    bool    has_extrusions() const { return ! this->perimeters.entities.empty() || ! this->fills.entities.empty(); }
+    bool    has_extrusions() const { return ! this->perimeters.entities.empty() || ! this->fills.entities.empty() || ! this->refinement_passes.empty(); }
     //BBS
     void    simplify_infill_extrusion_entity() { simplify_entity_collection(&fills); }
     void    simplify_wall_extrusion_entity() { simplify_entity_collection(&perimeters); }
@@ -208,6 +231,9 @@ public:
     // Moves a strip of the regions supported next to a bridge of another region to the bridge to anchor on.
     void                    anchor_bridges_in_neighbours();
     void                    make_perimeters();
+    // Orca: Replaces the outer surface of the regions with a fine wall layer height by thinner passes. `sub_slices`
+    // maps a pass count to the outlines of the object at the middle of each pass, lowest first.
+    void                    apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_slices);
     // Phony version of make_fills() without parameters for Perl integration only.
     void                    make_fills() { this->make_fills(nullptr); }
     void                    make_fills(const FillAdaptive::RegionOctrees* fill_octrees, FillLightning::Generator* lightning_generator = nullptr);

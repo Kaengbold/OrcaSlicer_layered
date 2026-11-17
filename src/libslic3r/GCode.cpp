@@ -7171,6 +7171,16 @@ LayerResult GCode::process_layer(
                 // identify the content of PrintRegion accross the whole print uniquely. Translate to a Print specific PrintRegion.
                 const PrintRegion &region = print.get_print_region(layerm->region().print_region_id());
 
+                // Orca: The passes of the layer refinement go with the outer wall filament. Allocating the islands
+                // makes the object printed with it even if it has nothing else to print with that filament.
+                if (! layerm->refinement_passes.empty()) {
+                    unsigned int refinement_extruder = layer_tools.extruder(layerm->refinement_passes.front().extrusions, region);
+                    if (! layer_tools.has_extruder(refinement_extruder) && ! layer_tools.is_mixed_slot(refinement_extruder))
+                        refinement_extruder = layer_tools.extruders.back();
+                    object_islands_by_extruder(by_extruder, refinement_extruder, &layer_to_print - layers.data(), layers.size(), n_slices + 1);
+                    object_by_extruder(by_extruder, refinement_extruder, &layer_to_print - layers.data(), layers.size()).refinement.emplace_back(layerm);
+                }
+
                 // Now we must process perimeters and infills and create islands of extrusions in by_region std::map.
                 // It is also necessary to save which extrusions are part of MM wiping and which are not.
                 // The process is almost the same for perimeters and infills - we will do it in a cycle that repeats twice:
@@ -7718,6 +7728,28 @@ LayerResult GCode::process_layer(
                     m_layer = layer_to_print.layer();
                     m_object_layer_over_raft = object_layer_over_raft;
                 }
+                // Orca: The passes of the layer refinement are printed under the layer, so they go first, while nothing
+                // of this layer stands next to them, lowest pass first over all regions.
+                if (visit.first_visit && print_wipe_extrusions == (is_anything_overridden ? 1 : 0) &&
+                    ! instance_to_print.object_by_extruder.refinement.empty()) {
+                    std::vector<std::pair<const LayerRegion*, const LayerRegion::RefinementPass*>> passes;
+                    for (const LayerRegion *layerm : instance_to_print.object_by_extruder.refinement)
+                        for (const LayerRegion::RefinementPass &pass : layerm->refinement_passes)
+                            passes.emplace_back(layerm, &pass);
+                    std::stable_sort(passes.begin(), passes.end(), [](const auto &l, const auto &r) { return l.second->z_offset < r.second->z_offset; });
+                    const coordf_t layer_nominal_z = m_nominal_z;
+                    for (const auto &[layerm, pass] : passes) {
+                        m_config.apply(print.get_print_region(layerm->region().print_region_id()).config());
+                        m_nominal_z                = layer_nominal_z + pass->z_offset;
+                        m_need_change_layer_lift_z = true;
+                        const std::vector<const ExtrusionEntity*> extrusions(pass->extrusions.entities.begin(), pass->extrusions.entities.end());
+                        for (const ExtrusionEntity *ee : extrusions)
+                            gcode += this->extrude_entity(*ee, "perimeter", -1., extrusions);
+                    }
+                    m_nominal_z                = layer_nominal_z;
+                    m_need_change_layer_lift_z = true;
+                }
+
                 // Sequential tool path ordering of multiple parts within the same object, aka. perimeter tracking (#5511)
                 // Island print order. Use the islands the tour assigned to this visit; if none,
                 // chain all islands nearest-neighbor from the current nozzle position (last_pos(),

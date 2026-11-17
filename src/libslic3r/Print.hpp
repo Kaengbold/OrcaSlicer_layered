@@ -582,6 +582,8 @@ public:
 
 private:
     void make_perimeters();
+    // Orca: Local layer refinement, see docs/HLSD/layer-refinement.md
+    void apply_layer_refinement();
     void prepare_infill();
     void infill();
     void ironing();
@@ -609,6 +611,8 @@ private:
     std::vector<std::set<int>> detect_extruder_geometric_unprintables() const;
 
     void slice_volumes();
+    // Orca: Outlines of the printable volumes at the heights `zs`, ascending, with the XY size compensation applied.
+    std::vector<ExPolygons> slice_printable_at(const std::vector<float> &zs) const;
     // Belt mode: shift the sliced layer grid (layer print_z and the belt floor
     // clipping shift) by delta, used by Print::_align_belt_purge_layers() to
     // snap the purge prism's layers onto the printed objects' layer grid.

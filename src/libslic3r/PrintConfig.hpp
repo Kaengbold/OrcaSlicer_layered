@@ -1498,6 +1498,10 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionEnum<CenterOfSurfacePattern>, center_of_surface_pattern))
     ((ConfigOptionBool,                 separated_infills))
     ((ConfigOptionString,               extra_solid_infills))
+    // Orca: Local layer refinement, see docs/HLSD/layer-refinement.md
+    ((ConfigOptionFloat,                layer_refinement_height))
+    ((ConfigOptionFloat,                layer_refinement_scarf_length))
+    ((ConfigOptionFloat,                layer_refinement_joint_overlap))
     ((ConfigOptionEnum<FuzzySkinType>,  fuzzy_skin))
     ((ConfigOptionFloat,                fuzzy_skin_thickness))
     ((ConfigOptionFloat,                fuzzy_skin_point_distance))

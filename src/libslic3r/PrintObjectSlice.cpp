@@ -1596,6 +1596,51 @@ void PrintObject::slice_volumes()
     BOOST_LOG_TRIVIAL(debug) << "Slicing volumes - make_slices in parallel - end";
 }
 
+std::vector<ExPolygons> PrintObject::slice_printable_at(const std::vector<float> &zs) const
+{
+    std::vector<ExPolygons> out(zs.size());
+    if (zs.empty())
+        return out;
+
+    const Print    *print = this->print();
+    const auto      throw_on_cancel_callback = std::function<void()>([print](){ print->throw_if_canceled(); });
+    ModelVolumePtrs volumes;
+    for (ModelVolume *model_volume : this->model_object()->volumes)
+        if (model_volume->is_model_part() || model_volume->is_negative_volume())
+            volumes.emplace_back(model_volume);
+    const std::vector<VolumeSlices> volume_slices = slice_volumes_inner(
+        print->config(), this->config(), this->trafo_centered(), volumes, m_shared_regions->layer_ranges, zs, throw_on_cancel_callback);
+
+    std::vector<Polygons> parts(zs.size());
+    std::vector<Polygons> negatives(zs.size());
+    for (const VolumeSlices &slices : volume_slices) {
+        const auto it = std::find_if(volumes.begin(), volumes.end(), [&slices](const ModelVolume *mv) { return mv->id() == slices.volume_id; });
+        assert(it != volumes.end());
+        std::vector<Polygons> &dst = (*it)->is_negative_volume() ? negatives : parts;
+        for (size_t i = 0; i < slices.slices.size() && i < zs.size(); ++ i)
+            polygons_append(dst[i], to_polygons(slices.slices[i]));
+    }
+
+    // As in slice_volumes(), the compensation is not applied to color-painted objects.
+    const bool  compensate        = ! (print->config().filament_diameter.size() > 1 && this->is_mm_painted());
+    const float xy_hole_scaled    = compensate ? scaled<float>(m_config.xy_hole_compensation.value) : 0.f;
+    const float xy_contour_scaled = compensate ? scaled<float>(m_config.xy_contour_compensation.value) : 0.f;
+    tbb::parallel_for(
+        tbb::blocked_range<size_t>(0, zs.size()),
+        [this, &out, &parts, &negatives, xy_hole_scaled, xy_contour_scaled](const tbb::blocked_range<size_t>& range) {
+            for (size_t i = range.begin(); i < range.end(); ++ i) {
+                m_print->throw_if_canceled();
+                ExPolygons expolygons = negatives[i].empty() ? union_ex(parts[i]) : diff_ex(parts[i], negatives[i]);
+                if (xy_contour_scaled > 0 || xy_hole_scaled > 0)
+                    expolygons = _shrink_contour_holes(std::max(0.f, xy_contour_scaled), std::max(0.f, xy_hole_scaled), expolygons);
+                if (xy_contour_scaled < 0 || xy_hole_scaled < 0)
+                    expolygons = _shrink_contour_holes(std::min(0.f, xy_contour_scaled), std::min(0.f, xy_hole_scaled), expolygons);
+                out[i] = std::move(expolygons);
+            }
+        });
+    return out;
+}
+
 void PrintObject::apply_conical_overhang() {
     BOOST_LOG_TRIVIAL(info) << "Make overhang printable...";
 

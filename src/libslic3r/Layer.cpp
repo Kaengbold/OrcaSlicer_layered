@@ -26,6 +26,7 @@
 #include <cassert>
 #include <cmath>
 #include <map>
+#include <memory>
 #include <numeric>
 #include "Config.hpp"
 #include "MultiMaterialSegmentation.hpp"
@@ -516,6 +517,273 @@ void Layer::make_perimeters()
 	        }
 	    }
     BOOST_LOG_TRIVIAL(trace) << "Generating perimeters for layer " << this->id() << " - Done";
+}
+
+// Orca: Appends the runs of the closed `loop` inside `zone` to `out`, as a loop if all of it is inside.
+static void append_refinement_loop(const Polygon &loop, const ExPolygons &zone, const ExtrusionPath &templ, ExtrusionEntityCollection &out)
+{
+    // Start the loop outside the zone if it leaves it, so that no run is cut at the first point.
+    const auto outside = std::find_if(loop.points.begin(), loop.points.end(), [&zone](const Point &point) {
+        return std::none_of(zone.begin(), zone.end(), [&point](const ExPolygon &expoly) { return expoly.contains(point); });
+    });
+    const Polyline source = outside == loop.points.end() ? loop.split_at_first_point() : loop.split_at_index(int(outside - loop.points.begin()));
+    Polylines      runs   = intersection_pl(source, to_polygons(zone));
+    if (runs.empty())
+        return;
+    const bool whole = outside == loop.points.end() && runs.size() == 1;
+    if (! whole && outside != loop.points.end())
+        restore_source_path_order(source, runs);
+    for (const Polyline &run : runs) {
+        // A stub no longer than it is wide would only leave a blob.
+        if (run.length() <= scale_(templ.width))
+            continue;
+        ExtrusionPath path(Polyline3(run), templ);
+        if (whole)
+            out.append(ExtrusionLoop(std::move(path), loop.is_clockwise() ? elrHole : elrDefault));
+        else
+            out.append(std::move(path));
+        out.entities.back()->inset_idx = templ.inset_idx;
+    }
+}
+
+// Orca: Splits `path` where it crosses the boundary of `area` and scales the flow of the parts over `area` by `factor`.
+static ExtrusionPaths scale_flow_over(const ExtrusionPath &path, const Polygons &area, const BoundingBox &area_box, double factor)
+{
+    const Polyline polyline = path.polyline.to_polyline();
+    if (! get_extents(polyline).overlap(area_box) || intersection_pl(polyline, area).empty())
+        return { path };
+    // The runs inside and outside `area` in the order and direction of the path, clipped segment by segment to keep them.
+    std::vector<std::pair<Polyline, bool>> runs;
+    for (size_t i = 1; i < polyline.size(); ++ i) {
+        const Point &a = polyline.points[i - 1];
+        const Point &b = polyline.points[i];
+        const Vec2d  dir = (b - a).cast<double>();
+        std::vector<std::pair<Polyline, bool>> pieces;
+        for (Polyline &piece : intersection_pl(Polyline{ a, b }, area))
+            pieces.emplace_back(std::move(piece), true);
+        for (Polyline &piece : diff_pl(Polyline{ a, b }, area))
+            pieces.emplace_back(std::move(piece), false);
+        for (auto &piece : pieces)
+            if (dir.dot((piece.first.last_point() - piece.first.first_point()).cast<double>()) < 0.)
+                piece.first.reverse();
+        std::sort(pieces.begin(), pieces.end(), [&a, &dir](const auto &l, const auto &r) {
+            return dir.dot((l.first.first_point() - a).cast<double>()) < dir.dot((r.first.first_point() - a).cast<double>());
+        });
+        for (auto &piece : pieces) {
+            if (! runs.empty() && runs.back().second == piece.second && runs.back().first.last_point() == piece.first.first_point())
+                runs.back().first.append(piece.first.last_point());
+            else
+                runs.emplace_back(std::move(piece));
+        }
+    }
+    ExtrusionPaths out;
+    for (auto &[run, inside] : runs) {
+        out.emplace_back(Polyline3(run), path);
+        if (inside) {
+            out.back().mm3_per_mm *= factor;
+            out.back().height     = float(out.back().height * factor);
+        }
+    }
+    return out;
+}
+
+// Orca: Scales the flow of the outer walls in `collection` over `area` by `factor`.
+static void scale_outer_wall_flow_over(ExtrusionEntityCollection &collection, const Polygons &area, double factor)
+{
+    const BoundingBox area_box = get_extents(area);
+    for (ExtrusionEntity *&entity : collection.entities) {
+        if (auto *child = dynamic_cast<ExtrusionEntityCollection*>(entity)) {
+            scale_outer_wall_flow_over(*child, area, factor);
+            continue;
+        }
+        ExtrusionPaths *paths = nullptr;
+        if (auto *loop = dynamic_cast<ExtrusionLoop*>(entity))
+            paths = &loop->paths;
+        else if (auto *multi_path = dynamic_cast<ExtrusionMultiPath*>(entity))
+            paths = &multi_path->paths;
+        else if (auto *path = dynamic_cast<ExtrusionPath*>(entity); path != nullptr && path->role() == erExternalPerimeter) {
+            // A single path split in parts becomes a multi path.
+            ExtrusionPaths split = scale_flow_over(*path, area, area_box, factor);
+            if (split.size() > 1 || split.front().mm3_per_mm != path->mm3_per_mm) {
+                auto *multi = new ExtrusionMultiPath();
+                multi->paths     = std::move(split);
+                multi->inset_idx = entity->inset_idx;
+                delete entity;
+                entity = multi;
+            }
+            continue;
+        }
+        if (paths == nullptr)
+            continue;
+        ExtrusionPaths out;
+        for (const ExtrusionPath &path : *paths)
+            append(out, path.role() == erExternalPerimeter ? scale_flow_over(path, area, area_box, factor) : ExtrusionPaths{ path });
+        *paths = std::move(out);
+    }
+}
+
+// The outer surface of a refined region is printed in `count` passes, each a 1/count of the layer high and following
+// the outline of the object at its own height. Behind them the layer is printed as it is, at its full height.
+//
+// The passes fill the fine zone: what any pass covers, less the core, which is where the layer keeps its own
+// extrusions. The core lies behind as many walls of the layer as it takes for the pass with the smallest outline to
+// still have its outer wall in front of the core. On an upright wall that is one wall, so the passes replace the outer
+// wall only. On a slope the outlines of the passes spread apart and the zone widens over further walls, and a feature
+// too thin for a core is printed by the passes alone.
+void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_slices)
+{
+    // Regions refined into the same number of passes are refined as one, with the settings of the first of them.
+    struct Group
+    {
+        LayerRegion *layerm { nullptr };
+        ExPolygons   area;
+    };
+    std::map<int, Group> groups;
+    ExPolygons           unrefined;
+    for (LayerRegion *layerm : m_regions) {
+        if (layerm->slices.empty())
+            continue;
+        const PrintRegionConfig &config = layerm->region().config();
+        // A fuzzy wall keeps the layer height, and so does a region without walls.
+        const bool fuzzy   = config.fuzzy_skin.value != FuzzySkinType::None && config.fuzzy_skin.value != FuzzySkinType::Disabled_fuzzy;
+        const int  count   = fuzzy || config.wall_loops.value < 1 ? 1 : layer_refinement_pass_count(height, config.layer_refinement_height.value);
+        if (count < 2 || sub_slices.find(count) == sub_slices.end()) {
+            append(unrefined, to_expolygons(layerm->slices.surfaces));
+            continue;
+        }
+        Group &group = groups[count];
+        if (group.layerm == nullptr)
+            group.layerm = layerm;
+        append(group.area, to_expolygons(layerm->slices.surfaces));
+    }
+    if (groups.empty())
+        return;
+
+    const Polygons outline = to_polygons(lslices);
+    // Where the passes replace the extrusions of the layer.
+    Polygons fine_zones;
+    // The top passes, one collection per island. They are printed at print_z as walls of their region, which are
+    // only added once the walls of the layer are removed from the fine zones.
+    std::vector<std::pair<LayerRegion*, std::unique_ptr<ExtrusionEntityCollection>>> top_passes;
+    // The steps of the scarf joints, with the share of the layer height the wall of the layer keeps over them.
+    std::vector<std::pair<Polygons, double>> scarf_bands;
+
+    for (auto &[count, group] : groups) {
+        LayerRegion                   &layerm      = *group.layerm;
+        const std::vector<ExPolygons> &pass_slices = sub_slices.find(count)->second;
+        const PrintRegionConfig       &config      = layerm.region().config();
+        const double                   pass_height = height / count;
+        const Flow                     ext_flow    = layerm.flow(frExternalPerimeter);
+        const Flow                     flow        = layerm.flow(frPerimeter);
+        // A wall of a pass takes the place of a wall of the layer: its spacing, and the overlap of a thin line with
+        // a thick one.
+        const float overlap       = float(0.5 * (1. - 0.25 * PI) * (pass_height + height));
+        const Flow  fine_ext_flow = layerm.flow(frExternalPerimeter, pass_height).with_width(ext_flow.spacing() + overlap);
+        const Flow  fine_flow     = layerm.flow(frPerimeter, pass_height).with_width(flow.spacing() + overlap);
+        // Depth of the boundary between the outer wall of the layer and its first inner wall, and from one inner wall
+        // to the next.
+        const coord_t wall_depth = (ext_flow.scaled_width() + ext_flow.scaled_spacing()) / 2;
+        const coord_t wall_step  = flow.scaled_spacing();
+        const int     wall_loops = config.wall_loops.value;
+
+        const ExPolygons area = union_ex(group.area);
+        // The outlines of the passes on a slope lie past the outline of the layer: grow the area outwards only.
+        const float    reach     = float(std::max(ext_flow.scaled_width(), coord_t(scale_(3. * height))));
+        const Polygons zone_area = diff(offset(area, reach), diff(outline, to_polygons(area)));
+
+        // What all the passes cover, and what any of them covers.
+        Polygons common = to_polygons(pass_slices.front());
+        Polygons all    = common;
+        for (size_t pass = 1; pass < pass_slices.size(); ++ pass) {
+            const Polygons slices = to_polygons(pass_slices[pass]);
+            common = intersection(common, slices);
+            polygons_append(all, slices);
+        }
+        all = union_(all);
+
+        // The core starts behind the first wall of the layer that leaves every pass room for its outer wall,
+        // allowing the outlines a quarter of a wall of deviation. Without such a wall, the passes replace them all.
+        const coord_t  tolerance = ext_flow.scaled_width() / 4;
+        const Polygons safe      = offset(common, - float(wall_depth - tolerance));
+        Polygons       core;
+        bool           walled    = false;
+        for (int wall = 0; wall < wall_loops && ! walled; ++ wall) {
+            Polygons behind = offset(outline, - float(wall_depth + wall * wall_step));
+            if (opening(diff(intersection(behind, zone_area), safe), float(tolerance / 2)).empty()) {
+                core   = std::move(behind);
+                walled = true;
+            }
+        }
+        if (! walled)
+            core = intersection(safe, offset(outline, - float(wall_depth + (wall_loops - 1) * wall_step)));
+
+        const Polygons shell = diff(all, core);
+        const Polygons zone  = intersection(zone_area, shell);
+        if (zone.empty())
+            continue;
+        polygons_append(fine_zones, zone);
+        // Where the fine wall ends on a wall carrying on at the layer height, the passes run on into that wall by the
+        // joint overlap, to fill the gap left by its rounded end. A scarf runs the lower passes further, a step per pass,
+        // and prints the wall of the layer over each step as thin as the passes under it leave room for.
+        const double scarf_step = unrefined.empty() ? 0. : config.layer_refinement_scarf_length.value / (count - 1);
+        const auto   run_on     = [&config, &scarf_step](int steps) {
+            return float(scale_(config.layer_refinement_joint_overlap.value + steps * scarf_step));
+        };
+        if (scarf_step > 0.)
+            for (int step = 1; step < count; ++ step)
+                if (Polygons band = intersection(diff(offset(zone_area, run_on(step)), offset(zone_area, run_on(step - 1))), shell); ! band.empty())
+                    scarf_bands.emplace_back(std::move(band), double(step) / count);
+
+        // The passes are extruded with the outer wall filament, all of their lines.
+        ExtrusionPath ext_templ(erExternalPerimeter, fine_ext_flow.mm3_per_mm(), fine_ext_flow.width(), fine_ext_flow.height());
+        ExtrusionPath templ(erPerimeter, fine_flow.mm3_per_mm(), fine_flow.width(), fine_flow.height());
+        ext_templ.inset_idx = 0;
+        templ.inset_idx     = 0;
+        for (int pass = 0; pass < count; ++ pass) {
+            const bool                top       = pass + 1 == count;
+            const ExPolygons          pass_zone = intersection_ex(offset(zone_area, run_on(count - 1 - pass)), shell);
+            ExtrusionEntityCollection pass_extrusions;
+            for (const ExPolygon &island : pass_slices[pass]) {
+                // Concentric lines from the outline of the pass inwards, as far as the zone reaches.
+                auto    extrusions = std::make_unique<ExtrusionEntityCollection>();
+                coord_t distance   = fine_ext_flow.scaled_width() / 2;
+                for (bool outer = true;; outer = false) {
+                    const size_t num_extrusions = extrusions->entities.size();
+                    for (const Polygon &loop : offset(island, - float(distance)))
+                        append_refinement_loop(loop, pass_zone, outer ? ext_templ : templ, *extrusions);
+                    if (extrusions->entities.size() == num_extrusions)
+                        break;
+                    distance += outer ? (fine_ext_flow.scaled_spacing() + fine_flow.scaled_spacing()) / 2 : fine_flow.scaled_spacing();
+                }
+                if (extrusions->entities.empty())
+                    continue;
+                if (top)
+                    top_passes.emplace_back(&layerm, std::move(extrusions));
+                else
+                    pass_extrusions.append(std::move(extrusions->entities));
+            }
+            if (! pass_extrusions.entities.empty())
+                layerm.refinement_passes.push_back({ - (count - 1 - pass) * pass_height, std::move(pass_extrusions) });
+        }
+    }
+    if (fine_zones.empty())
+        return;
+
+    fine_zones = union_(fine_zones);
+    for (LayerRegion *layerm : m_regions) {
+        for (const auto &[band, share] : scarf_bands)
+            scale_outer_wall_flow_over(layerm->perimeters, band, share);
+        remove_extrusions_over(layerm->perimeters, fine_zones);
+        remove_extrusions_over(layerm->thin_fills, fine_zones);
+        layerm->fill_expolygons            = diff_ex(layerm->fill_expolygons, fine_zones);
+        layerm->fill_no_overlap_expolygons = diff_ex(layerm->fill_no_overlap_expolygons, fine_zones);
+        if (! layerm->fill_surfaces.surfaces.empty()) {
+            const Surface templ = layerm->fill_surfaces.surfaces.front();
+            layerm->fill_surfaces.set(diff_ex(to_expolygons(layerm->fill_surfaces.surfaces), fine_zones), templ);
+        }
+    }
+    for (auto &[layerm, extrusions] : top_passes)
+        layerm->perimeters.entities.emplace_back(extrusions.release());
 }
 
 void Layer::export_region_slices_to_svg(const char *path) const
