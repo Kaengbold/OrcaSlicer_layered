@@ -1,0 +1,48 @@
+# Fork-only test build: Windows x64 alone, for trying the layer refinement
+# branch on a real printer. Remove this file before opening a pull request
+# against OrcaSlicer/OrcaSlicer.
+name: Build Windows x64 (test)
+
+on:
+  push:
+    branches:
+      - layer-refinement
+    paths:
+      - 'deps/**'
+      - 'deps_src/**'
+      - 'cmake/**'
+      - 'src/**'
+      - '**/CMakeLists.txt'
+      - 'resources/**'
+      - 'localization/**'
+      - 'tests/**'
+  workflow_dispatch:
+
+concurrency:
+  # A newer push replaces a build that is still running.
+  group: build-win-x64-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_windows:
+    name: Build Windows x64
+    permissions:
+      actions: write
+      contents: write
+      id-token: write
+    # Same inputs as the x64 entry of build_all.yml, so both share the deps cache.
+    uses: ./.github/workflows/build_check_cache.yml
+    with:
+      os: windows-latest
+      arch: x64
+      compiler: clang
+    secrets: inherit
+
+  unit_tests_windows_x64:
+    name: Windows x64 tests
+    needs: build_windows
+    if: ${{ !cancelled() && needs.build_windows.result == 'success' }}
+    uses: ./.github/workflows/unit_tests.yml
+    with:
+      os: windows-latest
+      artifact: ${{ github.sha }}-tests-windows-x64
