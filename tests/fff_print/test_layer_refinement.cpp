@@ -93,9 +93,20 @@ size_t count_paths(const std::vector<const ExtrusionPath*> &paths, ExtrusionRole
     return count;
 }
 
-// The volume a path extrudes in the G-code, where a sloped path scales its flow from its start to its end ratio.
+// The volume a path extrudes in the G-code, where a sloped path scales its flow from its start to its end ratio, and a
+// Z contoured one by its height over that of the path, (height + z) / height.
 double extruded_volume(const ExtrusionPath &path)
 {
+    if (path.z_contoured) {
+        double volume = 0.;
+        for (size_t idx = 1; idx < path.polyline.points.size(); ++ idx) {
+            const Point3 &a = path.polyline.points[idx - 1];
+            const Point3 &b = path.polyline.points[idx];
+            const double  z = unscale<double>(0.5 * double(a.z() + b.z()));
+            volume += path.mm3_per_mm * unscale<double>((b - a).head<2>().cast<double>().norm()) * (path.height + z) / path.height;
+        }
+        return volume;
+    }
     const auto *sloped = dynamic_cast<const ExtrusionPathSloped*>(&path);
     return sloped == nullptr ? path.total_volume() : path.total_volume() * 0.5 * (sloped->slope_begin.e_ratio + sloped->slope_end.e_ratio);
 }
@@ -253,15 +264,51 @@ TEST_CASE("A modifier refines only the walls inside it", "[LayerRefinement]")
         CHECK(count_paths(paths.at_print_z, erExternalPerimeter, layer_height * share / pass_count) == 0);
 }
 
-TEST_CASE("A scarf joint thins the wall of the layer in steps over the passes run on under it", "[LayerRefinement]")
+TEST_CASE("A scarf joint ramps the wall of the layer over a wedge of the passes under it", "[LayerRefinement]")
 {
     Print print;
     slice_one_side_refined(print, pass_height, 3.);
     const LayerPaths paths = paths_of(middle_layer(print));
-    // Each step of the scarf keeps one more pass height of the outer wall of the layer: a quarter, a half, three
-    // quarters. The quarter is as high as the top pass, so only the half and three quarters tell the steps apart.
-    for (int share = 2; share < pass_count; ++ share)
-        CHECK(count_paths(paths.at_print_z, erExternalPerimeter, layer_height * share / pass_count) > 0);
+    // The top line rises from the height of a pass to that of the layer over the ramp.
+    size_t ramped = 0;
+    for (const ExtrusionPath *path : paths.at_print_z)
+        if (path->role() == erExternalPerimeter && path->height > pass_height + 1e-3 && path->height < layer_height - 1e-3)
+            ++ ramped;
+    CHECK(ramped > 0);
+    // The lower passes run on lowered, as a wedge.
+    size_t lowered = 0;
+    for (const ExtrusionPath *path : paths.under)
+        if (path->z_contoured)
+            ++ lowered;
+    CHECK(lowered > 0);
+}
+
+TEST_CASE("The top line of a layer runs through the fine and the coarse wall in one", "[LayerRefinement]")
+{
+    Print print;
+    slice_one_side_refined(print, pass_height, 3.);
+    const Layer &layer = middle_layer(print);
+    // The outer wall of the layer is one loop holding both the top pass and the wall at the layer height.
+    size_t mixed_loops = 0;
+    for (const LayerRegion *region : layer.regions()) {
+        std::vector<const ExtrusionEntity*> stack(region->perimeters.entities.begin(), region->perimeters.entities.end());
+        while (! stack.empty()) {
+            const ExtrusionEntity *entity = stack.back();
+            stack.pop_back();
+            if (const auto *collection = dynamic_cast<const ExtrusionEntityCollection*>(entity))
+                stack.insert(stack.end(), collection->entities.begin(), collection->entities.end());
+            else if (const auto *loop = dynamic_cast<const ExtrusionLoop*>(entity)) {
+                bool fine = false, coarse = false;
+                for (const ExtrusionPath &path : loop->paths) {
+                    fine   = fine || std::abs(path.height - pass_height) < 1e-4;
+                    coarse = coarse || std::abs(path.height - layer_height) < 1e-4;
+                }
+                if (fine && coarse)
+                    ++ mixed_loops;
+            }
+        }
+    }
+    CHECK(mixed_loops == 1);
 }
 
 TEST_CASE("A scarf joint extrudes the same volume", "[LayerRefinement]")

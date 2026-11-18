@@ -84,15 +84,20 @@ fine lines and the thick wall meet in a joint. The fine lines can run
 `layer_refinement_joint_overlap` (0 by default) into the thick wall, to fill the
 gap its rounded end leaves next to the thin passes.
 
-With `layer_refinement_scarf_length` above 0 (0.2 mm by default), the joint is a
-stepped scarf. The
-scarf length is divided into one step fewer than there are passes. The lower
-passes run further into the thick wall, one more step for each pass down, and
-over each step the thick wall is extruded with the share of the layer height
-that the passes under it leave free: over the first step all passes but the top
-one lie under it and it keeps one pass height, over the last step only the
-lowest pass does. The extruded volume stays that of the unrefined wall, and the
-joint is spread over the scarf length instead of one vertical face.
+With `layer_refinement_scarf_length` above 0 (2 mm by default), the joint is the
+scarf of the prototype (`scripts/layer_combination_coupons.py`):
+
+- The top of the layer is one line. The open stretches of the top pass are
+  spliced with the walls of the layer they meet into one loop or line
+  (`splice_top_passes()`), so there is no start or end at the joint.
+- Over the ramp, the wall of the layer rises from the height of a pass to its
+  own, linearly where it runs into the fine zone and as u^0.8 with a bump of
+  up to 10 % where it leaves it, to pre-pressurise the nozzle.
+- Under it, the lower passes run on as a wedge: pass k of N ends
+  `L · ((N − k) − h_min / h) / (N − 1)` past the fine zone, and its top follows
+  `min(k·h, max((k − 1)·h + h_min, (N − 1)·h·(1 − u / L)))`, printed as a Z
+  contoured path whose flow follows its height. The wedge and the ramp add up
+  to the height of the layer everywhere.
 
 ### Helices
 

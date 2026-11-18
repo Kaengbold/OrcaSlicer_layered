@@ -4273,14 +4273,15 @@ void PrintConfigDef::init_fff_params()
     def = this->add("layer_refinement_scarf_length", coFloat);
     def->label = L("Fine wall scarf length");
     def->category = L("Quality");
-    def->tooltip = L("Where the fine wall ends on a wall that continues at the normal layer height, the two overlap over this length "
-                     "in steps: the lower passes reach further, and the normal wall is printed thinner where they lie under it.\n\n"
-                     "Set to 0 to end the fine wall without a scarf.");
+    def->tooltip = L("Where the fine wall ends on a wall that continues at the normal layer height, the joint ramps over this length: "
+                     "the top of the layer is one line through the fine and the normal wall, rising from the height of a pass to "
+                     "that of the layer, and under it the lower passes run on as a wedge that thins out towards the end.\n\n"
+                     "Set to 0 to end the fine wall without a ramp.");
     def->sidetext = L("mm");	// millimeters, CIS languages need translation
     def->min = 0;
     def->max = 50;
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(0.2));
+    def->set_default_value(new ConfigOptionFloat(2.));
 
     def = this->add("layer_refinement_joint_overlap", coFloat);
     def->label = L("Fine wall joint overlap");

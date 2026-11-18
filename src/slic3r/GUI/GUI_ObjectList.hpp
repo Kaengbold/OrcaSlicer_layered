@@ -22,6 +22,7 @@
 #include "Event.hpp"
 #include "ObjectDataViewModel.hpp"
 
+#include "libslic3r/ObjectID.hpp"
 #include "libslic3r/PrintConfig.hpp"
 
 class wxBitmap;
@@ -206,6 +207,9 @@ private:
                                                            // because it would turn off the gizmos (mainly a problem for the SLA gizmo)
 
     wxDataViewItem m_last_selected_item {nullptr};
+    // Orca: The painted modifier whose paint tool was opened by selecting it, so that a refresh of the selection does
+    // not open it again over a tool opened meanwhile.
+    ObjectID       m_painted_modifier_opened;
 
 #ifdef __WXMSW__
     // Workaround for entering the column editing mode on Windows. Simulate keyboard enter when another column of the active line is selected.

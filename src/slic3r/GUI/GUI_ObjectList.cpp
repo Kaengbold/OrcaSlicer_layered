@@ -3885,6 +3885,8 @@ void ObjectList::part_selection_changed()
 {
     if (wxGetApp().is_closing())
         return;
+    const ObjectID painted_modifier_opened = m_painted_modifier_opened;
+    m_painted_modifier_opened              = ObjectID();
 
     if (m_extruder_editor) m_extruder_editor->Hide();
     int obj_idx = -1;
@@ -4040,8 +4042,13 @@ void ObjectList::part_selection_changed()
 
                     const ModelVolume *volume = (*m_objects)[obj_idx]->volumes[volume_id];
                     enable_manipulation       = !((*m_objects)[obj_idx]->is_cut() && (volume->is_cut_connector() || volume->is_model_part()));
-                    if (volume->is_painted_modifier() && GetSelectedItemsCount() == 1)
-                        open_painted_modifier_tool(*volume);
+                    // Orca: Its paint tool opens when it is newly selected, not on every refresh of the selection, as when
+                    // another tool opens, which it would then take over from.
+                    if (volume->is_painted_modifier() && GetSelectedItemsCount() == 1) {
+                        if (volume->id() != painted_modifier_opened)
+                            open_painted_modifier_tool(*volume);
+                        m_painted_modifier_opened = volume->id();
+                    }
                 }
                 else if (type & itInstance) {
                     og_name = _L("Instance manipulation");
