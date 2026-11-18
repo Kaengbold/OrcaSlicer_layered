@@ -196,6 +196,9 @@ public:
     // These lslices are also used to detect overhangs and overlaps between successive layers, therefore it is important
     // that the 1st lslice is not compensated by the Elephant foot compensation algorithm.
     ExPolygons 				 lslices;
+    // Orca: Where the passes of the layer refinement leave the top of the layer under print_z, as where the top pass
+    // lies further in than the layer. Nothing is ironed there.
+    Polygons                 refinement_lowered;
     ExPolygons 				 lslices_extrudable;  // BBS: the extrudable part of lslices used for tree support
     std::vector<BoundingBox> lslices_bboxes;
     // Orca: for separated infills / per-model centering / octree infills. Aligned with lslices: for each

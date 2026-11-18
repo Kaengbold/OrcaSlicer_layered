@@ -106,6 +106,10 @@ the outline of its pass, opened at the point closest to the back of the top one.
 The helix is one more loop of travel than the passes, so it is about quality,
 not time. Islands with wider fine zones or joints keep flat passes.
 
+Where the top pass lies further in than the layer, the passes leave the top of
+the layer under `print_z`. `Layer::refinement_lowered` records these areas, and
+the ironing leaves them out, as there is no top surface there to iron.
+
 ## Data
 
 `LayerRegion::refinement_passes` holds the passes, lowest first, each with its

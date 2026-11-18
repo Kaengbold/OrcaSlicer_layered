@@ -813,6 +813,7 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
         if (zone.empty())
             continue;
         polygons_append(fine_zones, zone);
+        polygons_append(refinement_lowered, diff(zone, to_polygons(pass_slices.back())));
         // Where the fine wall ends on a wall carrying on at the layer height, the passes run on into that wall by the
         // joint overlap, to fill the gap left by its rounded end. A scarf runs the lower passes further, a step per pass,
         // and prints the wall of the layer over each step as thin as the passes under it leave room for.
@@ -869,7 +870,8 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
     if (fine_zones.empty())
         return;
 
-    fine_zones = union_(fine_zones);
+    refinement_lowered = union_(refinement_lowered);
+    fine_zones         = union_(fine_zones);
     for (LayerRegion *layerm : m_regions) {
         for (const auto &[band, share] : scarf_bands)
             scale_outer_wall_flow_over(layerm->perimeters, band, share);

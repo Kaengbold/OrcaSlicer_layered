@@ -655,9 +655,11 @@ void PrintObject::make_perimeters()
 // print their outer surface in thinner passes.
 void PrintObject::apply_layer_refinement()
 {
-    for (Layer *layer : m_layers)
+    for (Layer *layer : m_layers) {
+        layer->refinement_lowered.clear();
         for (LayerRegion *layerm : layer->regions())
             layerm->refinement_passes.clear();
+    }
 
     const PrintConfig &print_config = m_print->config();
     if (print_config.spiral_mode || print_config.belt_printer)

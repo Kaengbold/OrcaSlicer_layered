@@ -1895,6 +1895,9 @@ void Layer::make_ironing()
             // BBS: ironing inset
             double ironing_areas_offset = ironing_params.inset == 0 ? float(scale_(0.5 * nozzle_dmr)) : scale_(ironing_params.inset);
 			ironing_areas = intersection_ex(polys, offset(this->lslices, - ironing_areas_offset));
+			// Orca: Where the passes of a fine wall leave the top of the layer lower, there is no top surface to iron.
+			if (! this->refinement_lowered.empty())
+				ironing_areas = diff_ex(ironing_areas, this->refinement_lowered);
 		}
 
         // Create the filler object.
