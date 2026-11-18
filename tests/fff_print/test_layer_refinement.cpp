@@ -456,3 +456,22 @@ TEST_CASE("A short travel from a fine wall goes without a retraction", "[LayerRe
     };
     CHECK(retractions("50") < retractions("0"));
 }
+
+TEST_CASE("A refined layer keeps its top surfaces ironed", "[LayerRefinement]")
+{
+    // A 20 mm block 10 mm high with a 10 mm tower on it: the layer at 10 mm has a top surface around the tower and an
+    // inner area under it, which must keep their own types for the ironing to find the top.
+    TriangleMesh mesh  = make_cube(20., 20., 10.);
+    TriangleMesh tower = make_cube(10., 10., 20.);
+    tower.translate(5.f, 5.f, 0.f);
+    mesh.merge(tower);
+    Print print;
+    slice(print, std::move(mesh), pass_height, {{"ironing_type", "top"}});
+    size_t ironing = 0;
+    for (const Layer *layer : print.objects().front()->layers())
+        if (std::abs(layer->print_z - 10.) < 0.01)
+            for (const ExtrusionPath *path : paths_of(*layer).at_print_z)
+                if (path->role() == erIroning)
+                    ++ ironing;
+    CHECK(ironing > 0);
+}

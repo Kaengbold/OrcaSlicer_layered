@@ -772,7 +772,9 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
         // The outlines of the passes on a slope lie past the outline of the layer: grow the area outwards only, far
         // enough for the wide steps of a nearly flat surface.
         const float reach     = float(std::max(ext_flow.scaled_width(), coord_t(scale_(std::max(3. * height, 2.)))));
-        Polygons    zone_area = diff(offset(area, reach), diff(outline, to_polygons(area)));
+        // It grows only in front of the region, not along the wall past its ends into the regions next to it.
+        const Polygons others    = diff(outline, to_polygons(area));
+        Polygons       zone_area = union_(to_polygons(area), diff(diff(offset(area, reach), outline), offset(others, reach)));
 
         // What all the passes cover, and what any of them covers.
         Polygons common = to_polygons(pass_slices.front());
@@ -821,9 +823,11 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
         const auto   run_on     = [&config, &scarf_step](int steps) {
             return float(scale_(config.layer_refinement_joint_overlap.value + steps * scarf_step));
         };
+        // The run-on is measured from the fine zone, not from the region: only past the ends of the fine wall along the
+        // wall, never along the inner edge of a region that reaches deep into the part.
         if (scarf_step > 0.)
             for (int step = 1; step < count; ++ step)
-                if (Polygons band = intersection(diff(offset(zone_area, run_on(step)), offset(zone_area, run_on(step - 1))), shell); ! band.empty())
+                if (Polygons band = intersection(diff(offset(zone, run_on(step)), offset(zone, run_on(step - 1))), shell); ! band.empty())
                     scarf_bands.emplace_back(std::move(band), double(step) / count);
 
         // The passes are extruded with the outer wall filament, all of their lines.
@@ -834,7 +838,7 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
         // The lines of each pass by island of the layer.
         RefinementIslands pass_islands(count);
         for (int pass = 0; pass < count; ++ pass) {
-            const ExPolygons pass_zone = intersection_ex(offset(zone_area, run_on(count - 1 - pass)), shell);
+            const ExPolygons pass_zone = intersection_ex(offset(zone, run_on(count - 1 - pass)), shell);
             for (const ExPolygon &island : pass_slices[pass]) {
                 // Concentric lines from the outline of the pass inwards, as far as the zone reaches.
                 auto    extrusions = std::make_unique<ExtrusionEntityCollection>();
@@ -883,10 +887,12 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
         const float sliver = float(scale_(0.02));
         layerm->fill_expolygons            = opening_ex(diff_ex(layerm->fill_expolygons, fine_zones), sliver);
         layerm->fill_no_overlap_expolygons = opening_ex(diff_ex(layerm->fill_no_overlap_expolygons, fine_zones), sliver);
-        if (! layerm->fill_surfaces.surfaces.empty()) {
-            const Surface templ = layerm->fill_surfaces.surfaces.front();
-            layerm->fill_surfaces.set(opening_ex(diff_ex(to_expolygons(layerm->fill_surfaces.surfaces), fine_zones), sliver), templ);
-        }
+        // Each fill surface keeps its own type, top, bottom or internal, which the infill and the ironing go by.
+        Surfaces fill_surfaces;
+        for (const Surface &surface : layerm->fill_surfaces.surfaces)
+            for (ExPolygon &expoly : opening_ex(diff_ex(ExPolygons{ surface.expolygon }, fine_zones), sliver))
+                fill_surfaces.emplace_back(surface, std::move(expoly));
+        layerm->fill_surfaces.surfaces = std::move(fill_surfaces);
     }
     for (auto &[layerm, extrusions] : top_passes)
         layerm->perimeters.entities.emplace_back(extrusions.release());
