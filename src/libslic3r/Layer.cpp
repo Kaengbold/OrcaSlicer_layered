@@ -756,7 +756,7 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
         const Flow                     flow        = layerm.flow(frPerimeter);
         // A wall of a pass takes the place of a wall of the layer: its spacing, and the overlap of a thin line with
         // a thick one.
-        const float overlap       = float(0.5 * (1. - 0.25 * PI) * (pass_height + height));
+        const float overlap       = float(0.5 * (1. - 0.25 * PI) * (pass_height + height) * config.layer_refinement_wall_overlap.value / 100.);
         const Flow  fine_ext_flow = layerm.flow(frExternalPerimeter, pass_height).with_width(ext_flow.spacing() + overlap);
         const Flow  fine_flow     = layerm.flow(frPerimeter, pass_height).with_width(flow.spacing() + overlap);
         // Depth of the boundary between the outer wall of the layer and its first inner wall, and from one inner wall

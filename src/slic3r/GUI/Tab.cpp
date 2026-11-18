@@ -3045,6 +3045,9 @@ void TabPrint::build()
         optgroup->append_single_option_line("layer_refinement_joint_overlap");
         optgroup->append_single_option_line("layer_refinement_min_step");
         optgroup->append_single_option_line("layer_refinement_travel_without_retraction");
+        optgroup->append_single_option_line("layer_refinement_overhang_fan");
+        optgroup->append_single_option_line("layer_refinement_wall_overlap");
+        optgroup->append_single_option_line("layer_refinement_z_from_above");
         optgroup->append_single_option_line("layer_refinement_chain_passes");
         optgroup->append_single_option_line("layer_refinement_helical");
         optgroup->append_single_option_line("enable_mixed_color_sublayer");

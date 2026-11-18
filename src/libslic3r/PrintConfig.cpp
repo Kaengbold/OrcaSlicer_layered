@@ -4338,6 +4338,35 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(5.));
 
+    def = this->add("layer_refinement_overhang_fan", coBool);
+    def->label = L("Fine wall overhang fan");
+    def->category = L("Quality");
+    def->tooltip = L("Cools the passes of a fine wall with the overhang fan speed of the filament. The thin passes are printed one "
+                     "right after the other and stay soft without cooling. Needs the overhang fan of the filament to be enabled.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
+    def = this->add("layer_refinement_wall_overlap", coPercent);
+    def->label = L("Fine wall overlap with inner wall");
+    def->category = L("Quality");
+    def->tooltip = L("How far the passes of a fine wall reach into the inner wall of the layer, in percent of the overlap that "
+                     "fills the gap between a thin and a thick line. The inner wall is printed after the passes and pushes "
+                     "into them; lower it if the fine surface bulges or waves.");
+    def->sidetext = "%";
+    def->min = 0;
+    def->max = 100;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionPercent(100));
+
+    def = this->add("layer_refinement_z_from_above", coBool);
+    def->label = L("Approach fine passes from above");
+    def->category = L("Quality");
+    def->tooltip = L("Moves the nozzle a little above each pass of a fine wall before lowering it onto the pass, as for a "
+                     "layer, so that every pass is reached from the same side and play in the Z axis does not change the "
+                     "height of the passes against each other.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(true));
+
     def = this->add("layer_refinement_chain_passes", coBool);
     def->label = L("Chain fine wall passes");
     def->category = L("Quality");

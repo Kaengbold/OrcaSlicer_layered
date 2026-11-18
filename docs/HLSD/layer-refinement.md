@@ -141,6 +141,13 @@ seam where the last one ended. This saves the travels between the islands for
 every pass. The nozzle goes down once per island, onto an island where nothing of
 the layer is printed yet.
 
+With `layer_refinement_z_from_above` (on by default), a pass printed above the
+one before is reached from 0.1 mm above it, as a layer is, so that play in the Z
+axis does not change the heights of the passes against each other.
+`layer_refinement_overhang_fan` cools the passes with the overhang fan, and
+`layer_refinement_wall_overlap` scales how far the passes reach into the inner
+wall, which is printed after them and presses against them.
+
 A travel from a fine wall shorter than `layer_refinement_travel_without_retraction`
 (5 mm by default) goes without a retraction, a wipe and a Z hop: on thin passes,
 the restart after each retraction shows as a seam. Gaps of up to 2 mm between the
