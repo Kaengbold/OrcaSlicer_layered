@@ -566,7 +566,7 @@ static ExtrusionPaths scale_flow_over(const ExtrusionPath &path, const Polygons 
         for (auto &piece : pieces)
             if (dir.dot((piece.first.last_point() - piece.first.first_point()).cast<double>()) < 0.)
                 piece.first.reverse();
-        std::sort(pieces.begin(), pieces.end(), [&a, &dir](const auto &l, const auto &r) {
+        std::sort(pieces.begin(), pieces.end(), [&a, &dir](const std::pair<Polyline, bool> &l, const std::pair<Polyline, bool> &r) {
             return dir.dot((l.first.first_point() - a).cast<double>()) < dir.dot((r.first.first_point() - a).cast<double>());
         });
         for (auto &piece : pieces) {
