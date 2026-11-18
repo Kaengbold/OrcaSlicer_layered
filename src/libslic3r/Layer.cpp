@@ -810,6 +810,12 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
         // pieces does not start and stop the fine wall at each of them.
         zone_area     = closing(zone_area, float(scale_(1.)));
         Polygons zone = intersection(zone_area, shell);
+        // Where the zone reaches into the outer wall of the layer, it takes the whole depth of that wall: a region
+        // ending a little short of the line of the wall would leave the wall under the passes, thinned by the joint.
+        if (! zone.empty()) {
+            const Polygons outer_band = diff(union_(all, outline), offset(outline, - float(wall_depth)));
+            zone = union_(zone, intersection(offset(zone, float(ext_flow.scaled_width())), outer_band));
+        }
         if (zone.empty())
             continue;
         polygons_append(fine_zones, zone);

@@ -1,3 +1,4 @@
+#include <boost/log/trivial.hpp>
 #include <algorithm>
 #include <cassert>
 #include <cfloat>
@@ -376,7 +377,12 @@ void Fill::_create_gap_fill(const Surface* surface, const FillParams& params, Ex
         for (ExPolygon& ex : gaps_ex_sorted) {
             //BBS: Use DP simplify to avoid duplicated points and accelerate medial-axis calculation as well.
             ex.douglas_peucker(SCALED_RESOLUTION * 0.1);
-            ex.medial_axis(min, max, &polylines);
+            // Orca: A gap whose Voronoi diagram fails is left unfilled rather than failing the slicing.
+            try {
+                ex.medial_axis(min, max, &polylines);
+            } catch (const Slic3r::LogicError &ex_error) {
+                BOOST_LOG_TRIVIAL(warning) << "Gap fill skipped: " << ex_error.what();
+            }
         }
 
         if (!polylines.empty() && !is_bridge(params.extrusion_role)) {
