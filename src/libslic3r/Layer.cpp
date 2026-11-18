@@ -701,7 +701,7 @@ static void append_to_chain(ExtrusionPaths &chain, ExtrusionPaths &&next)
         return;
     if (! chain.empty() && chain.back().last_point() != next.front().first_point()) {
         const Point end = chain.back().last_point();
-        next.front().polyline.points.insert(next.front().polyline.points.begin(), Point3(end.x(), end.y(), 0));
+        next.front().polyline.points.insert(next.front().polyline.points.begin(), Point3(end.x(), end.y(), coord_t(0)));
     }
     append(chain, std::move(next));
 }
@@ -732,7 +732,7 @@ static void splice_top_passes(std::vector<LayerRegion*> &regions, std::vector<st
     std::vector<bool> wall_used(walls.size(), false);
     const auto near = [](const Point &a, const Point &b, double tolerance) { return (a - b).cast<double>().squaredNorm() <= tolerance * tolerance; };
     // The nearest unused stretch with an end within `tolerance` of `point`, and whether it ends there.
-    const auto find_stretch = [&stretches, &near](const Point &point, double tolerance) -> std::pair<int, bool> {
+    const auto find_stretch = [&stretches](const Point &point, double tolerance) -> std::pair<int, bool> {
         int    best     = -1;
         bool   reversed = false;
         double best_sqr = tolerance * tolerance;
@@ -812,7 +812,7 @@ static void splice_top_passes(std::vector<LayerRegion*> &regions, std::vector<st
         if (closed) {
             const Point first = chain.front().first_point();
             if (chain.back().last_point() != first)
-                chain.back().polyline.points.emplace_back(first.x(), first.y(), 0);
+                chain.back().polyline.points.emplace_back(first.x(), first.y(), coord_t(0));
             Polygon polygon;
             for (const ExtrusionPath &path : chain)
                 for (const Point3 &point : path.polyline.points)
@@ -1127,7 +1127,7 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
                     ExtrusionEntitiesPtr kept;
                     for (ExtrusionEntity *entity : extrusions->entities)
                         if (auto *path = dynamic_cast<ExtrusionPath*>(entity); path != nullptr && path->role() == erExternalPerimeter)
-                            top_stretches.push_back({ &layerm, { island, std::unique_ptr<ExtrusionPath>(path) } });
+                            top_stretches.emplace_back(&layerm, std::make_pair(int(island), std::unique_ptr<ExtrusionPath>(path)));
                         else
                             kept.emplace_back(entity);
                     extrusions->entities = std::move(kept);
