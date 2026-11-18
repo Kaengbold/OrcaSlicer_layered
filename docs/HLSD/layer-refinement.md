@@ -138,7 +138,11 @@ the layer is printed yet.
 
 A wall thinner than the layer in a refined region, which is a pass or the wall
 of the layer thinned over a scarf, is printed with `layer_refinement_speed` and
-`layer_refinement_acceleration`. At 0 they follow the outer and inner wall
+`layer_refinement_acceleration`, unless they overhang. A pass is judged for
+overhang speed and fan where the outer wall of its layer would be: it is moved onto
+the outer wall line of the layer for the overhang estimate, and the result moved
+back onto the pass. So all passes of a layer get the overhang speed and fan that
+wall would get, and the fan does not switch from pass to pass. At 0 they follow the outer and inner wall
 values; the settings page then shows the outer wall value in their fields, while
 the stored value stays 0 until it is edited.
 
@@ -185,7 +189,6 @@ view shows where the passes went.
 ## Known limitations
 
 - The feature is experimental until the strength of the joints is measured.
-- Fine lines are not classified as overhangs and get no overhang speed or fan.
 - Supports are generated from the layers, not from the passes.
 - With several filaments on one object, a filament printed before the outer
   wall filament may lay thick walls next to where the lower passes follow.

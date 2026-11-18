@@ -733,6 +733,10 @@ protected:
     std::map<unsigned int, IslandOrderCacheEntry> m_ordering_cache;
 
     ExtrusionQualityEstimator m_extrusion_quality_estimator;
+    // Orca: The outer wall line of the layer whose outer wall the passes of a fine wall replace. The overhang of a pass
+    // is judged where that wall would be, so that all passes of a layer get the overhang speed and fan the wall would.
+    const Layer                        *m_fine_wall_outline_layer { nullptr };
+    AABBTreeLines::LinesDistancer<Line> m_fine_wall_outline;
 
 
     /* Origin of print coordinates expressed in unscaled G-code coordinates.
