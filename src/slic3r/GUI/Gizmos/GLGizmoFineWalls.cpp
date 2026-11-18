@@ -241,18 +241,46 @@ void GLGizmoFineWalls::apply_suggestion()
         wxGetApp().obj_list()->select_item(ObjectVolumeID{mo, last});
     }
     GLGizmoPaintedModifier::update_from_model_object(false);
+    // Show the paint, which the heat map hides, so that it can be edited and erased with the brush.
+    m_show_heat_map = false;
     m_parent.post_event(SimpleEvent(EVT_GLCANVAS_SCHEDULE_BACKGROUND_PROCESS));
     m_parent.set_as_dirty();
+}
+
+float GLGizmoFineWalls::extra_labels_width() const
+{
+    float width = 0.f;
+    for (const char *key : {"mode", "pass_height", "min_step", "overhang_angle"})
+        width = std::max(width, m_imgui->calc_text_size(m_desc.at(key)).x);
+    return width;
 }
 
 void GLGizmoFineWalls::on_render_extra_input(float sliders_left_width, float sliders_width)
 {
     ImGui::Separator();
 
+    const float slider_icon_width = m_imgui->get_slider_icon_size().x;
+    const float space_size        = m_imgui->get_style_scaling() * 8;
+    const float drag_left_width   = ImGui::GetStyle().WindowPadding.x + sliders_width - space_size;
+    // A slider with the value to type in next to it, as the brush size has.
+    const auto slider = [&](const char *id, float *value, float min, float max, const char *format) {
+        ImGui::SameLine(sliders_left_width);
+        ImGui::PushItemWidth(sliders_width);
+        bool changed = m_imgui->bbl_slider_float_style((std::string("##") + id).c_str(), value, min, max, format, 1.0f, true);
+        ImGui::SameLine(drag_left_width + sliders_left_width);
+        ImGui::PushItemWidth(1.5f * slider_icon_width);
+        changed |= ImGui::BBLDragFloat((std::string("##") + id + "_input").c_str(), value, 0.05f, min, max, format);
+        *value = std::clamp(*value, min, max);
+        return changed;
+    };
+
     std::vector<std::string> modes = {into_u8(m_desc["mode_paint"]), into_u8(m_desc["mode_outward"]), into_u8(m_desc["mode_slope"])};
-    int                      mode  = int(m_rules.mode);
+    float                    combo_width = sliders_width + slider_icon_width * 1.5f + space_size;
+    for (const std::string &mode : modes)
+        combo_width = std::max(combo_width, ImGui::CalcTextSize(mode.c_str()).x + ImGui::GetFrameHeight() * 2.f);
+    int mode = int(m_rules.mode);
     ImGuiWrapper::push_combo_style(m_parent.get_scale());
-    if (m_imgui->combo(m_desc["mode"], modes, mode, 0, sliders_left_width, sliders_width + m_imgui->get_slider_icon_size().x * 1.5f)) {
+    if (m_imgui->combo(m_desc["mode"], modes, mode, 0, sliders_left_width, combo_width)) {
         m_rules.mode     = static_cast<FineWallMode>(mode);
         m_heat_map_dirty = true;
     }
@@ -260,31 +288,24 @@ void GLGizmoFineWalls::on_render_extra_input(float sliders_left_width, float sli
 
     ImGui::AlignTextToFramePadding();
     m_imgui->text(m_desc["pass_height"]);
-    ImGui::SameLine(sliders_left_width);
-    ImGui::PushItemWidth(sliders_width);
-    ImGui::BBLDragFloat("##fine_wall_pass_height", &m_pass_height, 0.005f, 0.02f, 0.2f, "%.3f mm");
-    m_pass_height = std::clamp(m_pass_height, 0.02f, 0.2f);
+    slider("fine_wall_pass_height", &m_pass_height, 0.02f, 0.2f, "%.3f");
 
     if (m_rules.mode == FineWallMode::Slope) {
         ImGui::AlignTextToFramePadding();
         m_imgui->text(m_desc["min_step"]);
-        ImGui::SameLine(sliders_left_width);
-        ImGui::PushItemWidth(sliders_width);
-        if (m_imgui->bbl_slider_float_style("##fine_wall_min_step", &m_min_step, 0.f, 1.f, "%.2f mm", 1.0f, true))
-            m_heat_map_dirty = true;
         if (ImGui::IsItemHovered())
             m_imgui->tooltip(m_desc["min_step_tooltip"], ImGui::GetFontSize() * 20.0f);
+        if (slider("fine_wall_min_step", &m_min_step, 0.f, 1.f, "%.2f"))
+            m_heat_map_dirty = true;
 
         if (m_imgui->bbl_checkbox(m_desc["overhangs"], m_rules.overhangs))
             m_heat_map_dirty = true;
         if (m_rules.overhangs) {
             ImGui::AlignTextToFramePadding();
             m_imgui->text(m_desc["overhang_angle"]);
-            ImGui::SameLine(sliders_left_width);
-            ImGui::PushItemWidth(sliders_width);
             const std::string format_str = std::string("%.f") + I18N::translate_utf8("°", "Face angle threshold,"
                                                                                           "placed after the number with no whitespace in between.");
-            if (m_imgui->bbl_slider_float_style("##fine_wall_overhang_angle", &m_overhang_angle, 0.f, 90.f, format_str.data(), 1.0f, true))
+            if (slider("fine_wall_overhang_angle", &m_overhang_angle, 0.f, 90.f, format_str.data()))
                 m_heat_map_dirty = true;
         }
     }

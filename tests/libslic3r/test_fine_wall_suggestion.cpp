@@ -35,6 +35,8 @@ TEST_CASE("The step of a layer grows as a face leans over", "[FineWallSuggestion
     CHECK_THAT(fine_wall_step(-std::sqrt(0.5), layer_height), WithinAbs(layer_height, 1e-9));
     // A flat top or bottom is a surface of its own, not a wall.
     CHECK_THAT(fine_wall_step(1., layer_height), WithinAbs(0., 1e-9));
+    // A face 2 degrees off flat is not: it leaves a step of almost 6 mm.
+    CHECK(fine_wall_step(std::cos(2. * 3.14159265358979 / 180.), layer_height) > 5.);
 }
 
 TEST_CASE("Outward walls selects the sides of a cube but not its top and bottom", "[FineWallSuggestion]")

@@ -1374,8 +1374,16 @@ void PrintObject::slice_volumes()
         for (const ModelVolume *model_volume : this->model_object()->volumes)
             if (model_volume->is_painted_modifier())
                 if (auto it = std::find_if(objSliceByVolume.begin(), objSliceByVolume.end(), [model_volume](const VolumeSlices &vs) { return vs.volume_id == model_volume->id(); });
-                    it != objSliceByVolume.end())
-                    it->slices = painted_modifier_segmentation(*this, *model_volume, it->slices, throw_on_cancel_callback);
+                    it != objSliceByVolume.end()) {
+                    try {
+                        it->slices = painted_modifier_segmentation(*this, *model_volume, it->slices, throw_on_cancel_callback);
+                    } catch (const Slic3r::LogicError &ex) {
+                        // Orca: Name the painted modifier, so that the user knows which paint the slicing failed on.
+                        throw Slic3r::SlicingError(_u8L("The painted area of a painted modifier could not be divided into layers.") +
+                                                   "\n" + _u8L("Painted modifier") + ": " + model_volume->name +
+                                                   "\n" + _u8L("Object name") + ": " + this->model_object()->name + "\n" + ex.what());
+                    }
+                }
     }
 
     //BBS: "model_part" volumes are grouded according to their connections

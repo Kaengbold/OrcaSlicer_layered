@@ -161,7 +161,9 @@ fine walls go. It is the painted modifier tool (see
 
 `suggest_fine_walls()` (`FineWallSuggestion.cpp`) scores every facet of a part by
 the horizontal step a layer leaves on it, `H · |n_z| / sqrt(1 − n_z²)`, as in
-adaptive layer height; flat tops and bottoms score 0. It selects facets by mode:
+adaptive layer height; only faces within half a degree of flat, which are printed
+as top and bottom surfaces, score 0. Nearly flat faces leave the widest steps and
+score highest. It selects facets by mode:
 
 | Mode | Selected |
 | --- | --- |

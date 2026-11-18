@@ -52,8 +52,9 @@ protected:
     void update_model_object() override;
     void update_from_model_object(bool first_update) override;
 
-    // Orca: Controls a derived tool adds to the window, above the brush.
-    virtual void on_render_extra_input(float sliders_left_width, float sliders_width) {}
+    // Orca: Controls a derived tool adds to the window, above the brush, and the width of their labels.
+    virtual void  on_render_extra_input(float sliders_left_width, float sliders_width) {}
+    virtual float extra_labels_width() const { return 0.f; }
 
     ModelVolume *target(const ModelObject &mo) const;
 

@@ -9947,8 +9947,9 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
     char buf[64];
     assert(is_decimal_separator_point());
 
-    if (path.role() != m_last_processor_extrusion_role) {
-        m_last_processor_extrusion_role = path.role();
+    // Orca: The G-code viewer shows the passes of a fine wall as a feature type of their own.
+    if (const ExtrusionRole processor_role = fine_wall ? erFineWall : path.role(); processor_role != m_last_processor_extrusion_role) {
+        m_last_processor_extrusion_role = processor_role;
         sprintf(buf, ";%s%s\n", GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role).c_str(), ExtrusionEntity::role_to_string(m_last_processor_extrusion_role).c_str());
         gcode += buf;
     }
@@ -10440,7 +10441,8 @@ std::string GCode::extrusion_role_to_string_for_parser(const ExtrusionRole & rol
 {
     switch (role) {
         case erPerimeter: return "Perimeter";
-        case erExternalPerimeter: return "ExternalPerimeter";
+        case erExternalPerimeter:
+        case erFineWall: return "ExternalPerimeter";
         case erOverhangPerimeter: return "OverhangPerimeter";
         case erInternalInfill: return "InternalInfill";
         case erSolidInfill: return "SolidInfill";

@@ -38,6 +38,7 @@ public:
 protected:
     std::string on_get_name() const override;
     void        on_render_extra_input(float sliders_left_width, float sliders_width) override;
+    float       extra_labels_width() const override;
 
     std::string get_gizmo_entering_text() const override { return _u8L("Entering fine walls"); }
     std::string get_gizmo_leaving_text() const override { return _u8L("Leaving fine walls"); }

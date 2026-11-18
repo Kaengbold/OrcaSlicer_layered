@@ -44,7 +44,7 @@ struct FineWallSuggestion
 };
 
 // The horizontal step a layer of `layer_height` leaves on a face whose unit normal points `normal_z` upwards.
-// Flat tops and bottoms, which are printed as top and bottom surfaces, leave none.
+// Flat tops and bottoms, within half a degree, are printed as top and bottom surfaces and leave none.
 double fine_wall_step(double normal_z, double layer_height);
 
 // Scores and selects the facets of a part. `trafo` places the part in the world, so that the steps are measured

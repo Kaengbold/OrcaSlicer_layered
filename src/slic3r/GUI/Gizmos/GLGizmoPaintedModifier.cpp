@@ -156,7 +156,8 @@ void GLGizmoPaintedModifier::on_render_input_window(float x, float y, float bott
 
     const float space_size         = m_imgui->get_style_scaling() * 8;
     const float sliders_left_width = std::max({m_imgui->calc_text_size(m_desc["cursor_size"]).x, m_imgui->calc_text_size(m_desc["smart_fill_angle"]).x,
-                                               m_imgui->calc_text_size(m_desc["depth"]).x, m_imgui->calc_text_size(m_desc["target"]).x}) +
+                                               m_imgui->calc_text_size(m_desc["depth"]).x, m_imgui->calc_text_size(m_desc["target"]).x,
+                                               extra_labels_width()}) +
                                      m_imgui->scaled(1.5f);
     const float sliders_width      = m_imgui->scaled(7.0f);
     const float drag_left_width    = ImGui::GetStyle().WindowPadding.x + sliders_width - space_size;

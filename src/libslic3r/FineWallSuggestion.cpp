@@ -14,8 +14,9 @@
 
 namespace Slic3r {
 
-// A face within about 10 degrees of flat is a top or a bottom surface.
-static constexpr double flat_normal_z = 0.985;
+// Only a face within half a degree of flat is a top or a bottom surface: the nearly flat faces leave the widest and
+// most visible steps.
+static constexpr double flat_normal_z = 0.99996;
 
 double fine_wall_step(double normal_z, double layer_height)
 {

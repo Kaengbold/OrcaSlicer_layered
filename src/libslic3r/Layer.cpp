@@ -769,8 +769,9 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
         const int     wall_loops = config.wall_loops.value;
 
         const ExPolygons area = union_ex(group.area);
-        // The outlines of the passes on a slope lie past the outline of the layer: grow the area outwards only.
-        const float reach     = float(std::max(ext_flow.scaled_width(), coord_t(scale_(3. * height))));
+        // The outlines of the passes on a slope lie past the outline of the layer: grow the area outwards only, far
+        // enough for the wide steps of a nearly flat surface.
+        const float reach     = float(std::max(ext_flow.scaled_width(), coord_t(scale_(std::max(3. * height, 2.)))));
         Polygons    zone_area = diff(offset(area, reach), diff(outline, to_polygons(area)));
 
         // What all the passes cover, and what any of them covers.

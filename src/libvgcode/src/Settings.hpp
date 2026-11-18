@@ -82,6 +82,7 @@ struct Settings
 		        true, // Brim
 		        true, // SupportTransition
 		        true, // Mixed
+		        true, // FineWall
 		};
 };
 

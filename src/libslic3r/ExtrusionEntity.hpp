@@ -46,6 +46,9 @@ enum ExtrusionRole : uint8_t {
     erCustom,
     // Extrusion role for a collection with multiple extrusion roles.
     erMixed,
+    // Orca: Only in the G-code: the passes of a fine wall, see docs/HLSD/layer-refinement.md. Their paths keep the role
+    // of the wall they replace, and only the role tag for the G-code viewer names them.
+    erFineWall,
     erCount
 };
 
@@ -64,7 +67,8 @@ inline bool is_perimeter(ExtrusionRole role)
 {
     return role == erPerimeter
         || role == erExternalPerimeter
-        || role == erOverhangPerimeter;
+        || role == erOverhangPerimeter
+        || role == erFineWall;
 }
 
 inline bool is_internal_perimeter(ExtrusionRole role)

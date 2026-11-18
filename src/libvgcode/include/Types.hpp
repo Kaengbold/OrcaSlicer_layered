@@ -173,6 +173,8 @@ enum class EGCodeExtrusionRole : uint8_t
       Brim,
       SupportTransition,
       Mixed,
+      // ORCA: the passes of a fine wall
+      FineWall,
     COUNT
 };
 
