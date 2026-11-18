@@ -93,15 +93,22 @@ size_t count_paths(const std::vector<const ExtrusionPath*> &paths, ExtrusionRole
     return count;
 }
 
+// The volume a path extrudes in the G-code, where a sloped path scales its flow from its start to its end ratio.
+double extruded_volume(const ExtrusionPath &path)
+{
+    const auto *sloped = dynamic_cast<const ExtrusionPathSloped*>(&path);
+    return sloped == nullptr ? path.total_volume() : path.total_volume() * 0.5 * (sloped->slope_begin.e_ratio + sloped->slope_end.e_ratio);
+}
+
 double volume_of(const Print &print)
 {
     double volume = 0.;
     for (const Layer *layer : print.objects().front()->layers()) {
         const LayerPaths paths = paths_of(*layer);
         for (const ExtrusionPath *path : paths.at_print_z)
-            volume += path->total_volume();
+            volume += extruded_volume(*path);
         for (const ExtrusionPath *path : paths.under)
-            volume += path->total_volume();
+            volume += extruded_volume(*path);
     }
     return volume;
 }
