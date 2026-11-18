@@ -440,3 +440,30 @@ TEST_CASE("Inner walls keep the layer height where only one side of a layer move
     // The three upright sides, about 19 mm each, keep their inner wall at the layer height.
     CHECK(inner_wall_length > 50.);
 }
+
+TEST_CASE("A fine wall stretch shorter than 3 mm is not refined", "[LayerRefinement]")
+{
+    // A modifier 1 mm thick across a 20 mm cube meets its walls in stretches of 1 mm only: refining them would start and
+    // stop the fine wall, with a retraction and a seam each, for next to no gain.
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({
+        {"layer_height", std::to_string(layer_height)},
+        {"initial_layer_print_height", std::to_string(layer_height)},
+        {"wall_loops", "2"},
+        {"sparse_infill_density", "15%"},
+        {"layer_refinement_height", "0"},
+    });
+    Model        model;
+    ModelObject *object = model.add_object();
+    object->add_volume(make_cube(20., 20., 20.));
+    TriangleMesh modifier_mesh = make_cube(30., 1., 30.);
+    modifier_mesh.translate(-5.f, 9.5f, -5.f);
+    ModelVolume *modifier = object->add_volume(std::move(modifier_mesh), ModelVolumeType::PARAMETER_MODIFIER);
+    modifier->config.set("layer_refinement_height", pass_height);
+    object->add_instance()->set_offset(Vec3d(100., 100., 0.));
+    object->ensure_on_bed();
+    Print print;
+    print.apply(model, config);
+    print.process();
+    CHECK(paths_of(middle_layer(print)).under.empty());
+}
