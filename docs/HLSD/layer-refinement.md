@@ -157,17 +157,17 @@ wall, which is printed after them and presses against them.
 
 A travel from a fine wall shorter than `layer_refinement_travel_without_retraction`
 (5 mm by default) goes without a retraction, a wipe and a Z hop: on thin passes,
-the restart after each retraction shows as a seam. Gaps of up to 2 mm between the
-stretches of a fine zone are refined too, so that a painted area broken into
-pieces does not split the fine wall at each of them.
+the restart after each retraction shows as a seam.
 
 A wall thinner than the layer in a refined region, which is a pass or the wall
 of the layer thinned over a scarf, is printed with `layer_refinement_speed` and
-`layer_refinement_acceleration`, unless they overhang. A pass is judged for
-overhang speed and fan where the outer wall of its layer would be: it is moved onto
-the outer wall line of the layer for the overhang estimate, and the result moved
-back onto the pass. So all passes of a layer get the overhang speed and fan that
-wall would get, and the fan does not switch from pass to pass. At 0 they follow the outer and inner wall
+`layer_refinement_acceleration`, unless they overhang. A pass rests on the pass
+under it, not on the layer below, so its overhang speed and fan are judged against
+the outline of that pass: each layer is sliced once more at the middle of a pass
+under it for its lowest pass, and the top passes spliced into the walls of the layer
+use the outline under the top pass (`Layer::refinement_top_support`). On a slope
+every pass then steps out alike over the one under it, and all passes of a layer
+get the same speed and fan. At 0 they follow the outer and inner wall
 values; the settings page then shows the outer wall value in their fields, while
 the stored value stays 0 until it is edited.
 
@@ -180,6 +180,10 @@ Consequences:
 Tool ordering registers the outer wall filament for a layer region that holds
 passes even when it has no other walls, and the object is then visited with that
 filament although none of its islands has extrusions for it.
+
+A painted modifier that sets a fine wall layer height refines walls only: unlike
+other painted modifiers, its paint on faces looking up or down is not carried
+through the top and bottom shells.
 
 ## Suggestions
 

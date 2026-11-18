@@ -978,7 +978,10 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
 
     for (auto &[count, group] : groups) {
         LayerRegion                   &layerm      = *group.layerm;
-        const std::vector<ExPolygons> &pass_slices = sub_slices.find(count)->second;
+        // The outline under the lowest pass, then those of the passes.
+        const std::vector<ExPolygons> &outlines    = sub_slices.find(count)->second;
+        const ExPolygons              &below       = outlines.front();
+        const std::vector<ExPolygons>  pass_slices(outlines.begin() + 1, outlines.end());
         const PrintRegionConfig       &config      = layerm.region().config();
         const double                   pass_height = height / count;
         const Flow                     ext_flow    = layerm.flow(frExternalPerimeter);
@@ -995,9 +998,8 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
         const int     wall_loops = config.wall_loops.value;
 
         const ExPolygons area = union_ex(group.area);
-        // The outlines of the passes on a slope lie past the outline of the layer: grow the area outwards only, far
-        // enough for the wide steps of a nearly flat surface.
-        const float reach     = float(std::max(ext_flow.scaled_width(), coord_t(scale_(std::max(3. * height, 2.)))));
+        // The outlines of the passes on a slope lie past the outline of the layer: grow the area outwards only.
+        const float reach     = float(std::max(ext_flow.scaled_width(), coord_t(scale_(3. * height))));
         // It grows only in front of the region, not along the wall past its ends into the regions next to it.
         const Polygons others    = diff(outline, to_polygons(area));
         Polygons       zone_area = union_(to_polygons(area), diff(diff(offset(area, reach), outline), offset(others, reach)));
@@ -1050,20 +1052,12 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
         const Polygons core      = diff(behind, opening(diff(intersection(behind, zone_area), safe), float(tolerance / 2)));
 
         const Polygons shell = diff(all, core);
-        // Gaps of up to 2 mm between the stretches of a fine wall are refined too, so that a painted area broken into
-        // pieces does not start and stop the fine wall at each of them.
-        zone_area     = closing(zone_area, float(scale_(1.)));
-        Polygons zone = intersection(zone_area, shell);
-        // Where the zone reaches into the outer wall of the layer, it takes the whole depth of that wall: a region
-        // ending a little short of the line of the wall would leave the wall under the passes, thinned by the joint.
-        if (! zone.empty()) {
-            const Polygons outer_band = diff(union_(all, outline), offset(outline, - float(wall_depth)));
-            zone = union_(zone, intersection(offset(zone, float(ext_flow.scaled_width())), outer_band));
-        }
+        const Polygons zone = intersection(zone_area, shell);
         if (zone.empty())
             continue;
         polygons_append(fine_zones, zone);
         polygons_append(refinement_lowered, diff(zone, to_polygons(pass_slices.back())));
+        append(refinement_top_support, count > 1 ? pass_slices[count - 2] : below);
         // Where the fine wall ends on a wall carrying on at the layer height, the joint is the scarf of the prototype
         // (scripts/layer_combination_coupons.py): over the ramp length, the wall of the layer rises from the height of a
         // pass to its own, and under it the lower passes run on as a wedge thinning out towards the end of the ramp, the
@@ -1115,10 +1109,15 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
                     if (extrusions)
                         wedge_pass(*extrusions, distance, ramp, pass_height, min_height, count, pass + 1);
         }
-        if (config.layer_refinement_helical.value)
+        if (config.layer_refinement_helical.value) {
+            const size_t num_passes_before = layerm.refinement_passes.size();
             make_refinement_helices(pass_islands, pass_height, layerm.refinement_passes);
+            for (size_t idx = num_passes_before; idx < layerm.refinement_passes.size(); ++ idx)
+                layerm.refinement_passes[idx].support = below;
+        }
         for (int pass = 0; pass < count; ++ pass) {
             LayerRegion::RefinementPass refinement_pass { - (count - 1 - pass) * pass_height };
+            refinement_pass.support = pass == 0 ? below : pass_slices[pass - 1];
             for (auto &[island, extrusions] : pass_islands[pass]) {
                 if (! extrusions)
                     continue;
@@ -1143,8 +1142,9 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
     if (fine_zones.empty())
         return;
 
-    refinement_lowered = union_(refinement_lowered);
-    fine_zones         = union_(fine_zones);
+    refinement_lowered     = union_(refinement_lowered);
+    refinement_top_support = union_ex(refinement_top_support);
+    fine_zones             = union_(fine_zones);
     for (LayerRegion *layerm : m_regions) {
         remove_extrusions_over(layerm->perimeters, fine_zones);
         for (const Ramp &ramp : ramps)
@@ -1178,7 +1178,8 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
                                    [](const LayerRegion::RefinementPass &pass) { return pass.turn_offsets.empty() && std::abs(pass.z_offset) < EPSILON; });
             if (it == layerm.refinement_passes.end()) {
                 layerm.refinement_passes.push_back({ 0. });
-                it = std::prev(layerm.refinement_passes.end());
+                it          = std::prev(layerm.refinement_passes.end());
+                it->support = refinement_top_support;
             }
             it->islands.emplace_back(top_stretches[idx].second.first);
             it->extrusions.entities.emplace_back(stretches[idx].release());

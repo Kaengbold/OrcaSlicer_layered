@@ -7820,18 +7820,21 @@ LayerResult GCode::process_layer(
                                 reversed_entity.reset(entities[extrusion.idx]->clone());
                                 reversed_entity->reverse();
                             }
+                            m_fine_wall_support = &extrusion.pass->support;
                             gcode += this->extrude_entity(reversed ? *reversed_entity : *entities[extrusion.idx], "perimeter", -1., region_extrusions);
                         } else {
                             for (size_t turn = 0; turn < entities.size(); ++ turn) {
                                 m_nominal_z = layer_nominal_z + extrusion.pass->turn_offsets[turn];
                                 if (turn == 0 && lift)
                                     m_need_change_layer_lift_z = true;
+                                m_fine_wall_support = &extrusion.pass->support;
                                 gcode += this->extrude_entity(*entities[turn], "perimeter", -1., region_extrusions);
                             }
                         }
                     }
                     m_nominal_z                = layer_nominal_z;
                     m_need_change_layer_lift_z = true;
+                    m_fine_wall_support        = nullptr;
                 }
 
                 // Sequential tool path ordering of multiple parts within the same object, aka. perimeter tracking (#5511)
@@ -9347,40 +9350,6 @@ static float overhang_fan_overlap_threshold(int overhang_fan_threshold)
     }
 }
 
-// Orca: Moves `points`, computed along `from`, to the same places along `to`, a polyline with as many points.
-static void transfer_processed_points(std::vector<ProcessedPoint> &points, const Polyline3 &from, const Polyline3 &to)
-{
-    if (from.points.size() != to.points.size() || from.points.size() < 2)
-        return;
-    size_t segment = 0;
-    for (ProcessedPoint &point : points) {
-        const Vec2d p(double(point.p.x()), double(point.p.y()));
-        // The segment of `from` the point lies on, the points being in order along it.
-        size_t best_segment = segment;
-        double best_t       = 0.;
-        double best_sqr     = std::numeric_limits<double>::max();
-        for (size_t idx = segment; idx + 1 < from.points.size(); ++ idx) {
-            const Vec2d  a(double(from.points[idx].x()), double(from.points[idx].y()));
-            const Vec2d  ab     = Vec2d(double(from.points[idx + 1].x()), double(from.points[idx + 1].y())) - a;
-            const double length = ab.squaredNorm();
-            const double t      = length > 0. ? std::clamp((p - a).dot(ab) / length, 0., 1.) : 0.;
-            const double sqr    = (a + t * ab - p).squaredNorm();
-            if (sqr < best_sqr) {
-                best_segment = idx;
-                best_t       = t;
-                best_sqr     = sqr;
-            }
-            if (sqr <= 100.)
-                break;
-        }
-        segment = best_segment;
-        const Point3 &a = to.points[segment];
-        const Point3 &b = to.points[segment + 1];
-        point.p = Point3(coord_t(std::round(a.x() + best_t * (b.x() - a.x()))), coord_t(std::round(a.y() + best_t * (b.y() - a.y()))),
-                         coord_t(std::round(a.z() + best_t * (b.z() - a.z()))));
-    }
-}
-
 static bool overhang_fan_active(float overlap, int overhang_fan_threshold, ExtrusionRole role)
 {
     if (role == erBridgeInfill || role == erOverhangPerimeter)
@@ -9888,24 +9857,21 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
             
             ConfigOptionPercents         overhang_overlap_levels({90, 75, 50, 25, 13, 0});
 
-            // Orca: A pass of a fine wall is judged where the outer wall of its layer would be: moved onto the outer wall
-            // line of the layer, and moved back after.
-            ExtrusionPath fine_wall_on_outline;
-            if (fine_wall) {
-                if (m_fine_wall_outline_layer != m_layer) {
-                    m_fine_wall_outline_layer = m_layer;
-                    m_fine_wall_outline       = AABBTreeLines::LinesDistancer<Line>(to_lines(offset(m_layer->lslices, - float(scale_(0.5 * path.width)))));
+            // Orca: A pass of a fine wall rests on the pass under it, not on the layer below: its overhang is judged against
+            // the outline of that pass. On a slope every pass then steps out alike over the one under it, and all passes of
+            // a layer get the same speed and fan.
+            const ExPolygons *fine_wall_support = nullptr;
+            if (fine_wall && m_layer != nullptr)
+                fine_wall_support = m_fine_wall_support != nullptr ? m_fine_wall_support : &m_layer->refinement_top_support;
+            if (fine_wall_support != nullptr && ! fine_wall_support->empty()) {
+                if (m_fine_wall_boundaries_layer != m_layer || m_fine_wall_boundaries_source != fine_wall_support) {
+                    m_fine_wall_boundaries_layer  = m_layer;
+                    m_fine_wall_boundaries_source = fine_wall_support;
+                    m_fine_wall_boundaries        = std::make_shared<const AABBTreeLines::LinesDistancer<Linef3>>(to_unscaled_linesf3(*fine_wall_support));
                 }
-                fine_wall_on_outline = path;
-                for (Point3 &point : fine_wall_on_outline.polyline.points) {
-                    const auto [distance, line_idx, nearest] = m_fine_wall_outline.distance_from_lines_extra<false>(Point(point.x(), point.y()));
-                    if (line_idx != size_t(-1)) {
-                        point.x() = coord_t(std::round(nearest.x()));
-                        point.y() = coord_t(std::round(nearest.y()));
-                    }
-                }
+                m_extrusion_quality_estimator.set_override_boundaries(m_fine_wall_boundaries);
             }
-            const ExtrusionPath &estimated_path = fine_wall ? fine_wall_on_outline : path;
+            const ExtrusionPath &estimated_path = path;
 
             // ORCA: Lets the path be split where the overhang fan switches, not only where the speed changes.
             // Bridges and overhang perimeters are cooled regardless of overlap.
@@ -9960,14 +9926,7 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
                                                                               ref_speed, speed, NOZZLE_CONFIG(slowdown_for_curled_perimeters),
                                                                               fan_overlap_threshold);
             }
-            if (fine_wall) {
-                transfer_processed_points(new_points, fine_wall_on_outline.polyline, path.polyline);
-                // The passes of a layer are all judged on the same wall line, but the rounding of their positions tips
-                // an overlap right at the fan threshold either way, as on a 45 degree overhang with lines twice as wide as
-                // the layer: rounded to a percent, they all decide alike.
-                for (ProcessedPoint &point : new_points)
-                    point.overlap = std::round(point.overlap * 100.f) / 100.f;
-            }
+            m_extrusion_quality_estimator.set_override_boundaries(nullptr);
             if (!NOZZLE_CONFIG(enable_overhang_speed))
                 for (ProcessedPoint &point : new_points)
                     point.speed = speed;

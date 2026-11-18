@@ -657,6 +657,7 @@ void PrintObject::apply_layer_refinement()
 {
     for (Layer *layer : m_layers) {
         layer->refinement_lowered.clear();
+        layer->refinement_top_support.clear();
         for (LayerRegion *layerm : layer->regions())
             layerm->refinement_passes.clear();
     }
@@ -685,18 +686,19 @@ void PrintObject::apply_layer_refinement()
     std::vector<std::map<int, std::vector<ExPolygons>>> sub_slices(m_layers.size());
     for (const auto &[count, layer_ids] : layers_by_count) {
         std::vector<float> zs;
-        zs.reserve(layer_ids.size() * count);
+        // Each layer is sliced at the middle of its passes and of one pass under it, which its lowest pass rests on.
+        zs.reserve(layer_ids.size() * (count + 1));
         for (const size_t layer_idx : layer_ids) {
             const Layer   &layer  = *m_layers[layer_idx];
             const double   bottom = layer.print_z - layer.height - m_slicing_params.object_print_z_min;
-            for (int pass = 0; pass < count; ++ pass)
+            for (int pass = -1; pass < count; ++ pass)
                 zs.emplace_back(float(bottom + (pass + 0.5) * layer.height / count));
         }
         std::vector<ExPolygons> slices = this->slice_printable_at(zs);
         auto                    it     = slices.begin();
         for (const size_t layer_idx : layer_ids) {
-            sub_slices[layer_idx][count].assign(std::make_move_iterator(it), std::make_move_iterator(it + count));
-            it += count;
+            sub_slices[layer_idx][count].assign(std::make_move_iterator(it), std::make_move_iterator(it + count + 1));
+            it += count + 1;
         }
         m_print->throw_if_canceled();
     }

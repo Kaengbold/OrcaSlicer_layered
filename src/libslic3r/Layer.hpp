@@ -114,6 +114,8 @@ public:
         // A helix: the extrusions are its turns, printed in one go, each ending this far under print_z.
         // Empty for a flat pass.
         std::vector<double>         turn_offsets;
+        // The outline of the pass under this one, which it rests on and its overhang is judged against.
+        ExPolygons                  support;
     };
     std::vector<RefinementPass> refinement_passes;
 
@@ -199,6 +201,8 @@ public:
     // Orca: Where the passes of the layer refinement leave the top of the layer under print_z, as where the top pass
     // lies further in than the layer. Nothing is ironed there.
     Polygons                 refinement_lowered;
+    // Orca: The outline of the pass under the top pass of a fine wall, for the top passes spliced into the walls.
+    ExPolygons               refinement_top_support;
     ExPolygons 				 lslices_extrudable;  // BBS: the extrudable part of lslices used for tree support
     std::vector<BoundingBox> lslices_bboxes;
     // Orca: for separated infills / per-model centering / octree infills. Aligned with lslices: for each
@@ -240,7 +244,8 @@ public:
     void                    anchor_bridges_in_neighbours();
     void                    make_perimeters();
     // Orca: Replaces the outer surface of the regions with a fine wall layer height by thinner passes. `sub_slices`
-    // maps a pass count to the outlines of the object at the middle of each pass, lowest first.
+    // maps a pass count to the outlines of the object at the middle of each pass, lowest first, after the outline at the
+    // middle of a pass under the layer.
     void                    apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_slices);
     // Phony version of make_fills() without parameters for Perl integration only.
     void                    make_fills() { this->make_fills(nullptr); }

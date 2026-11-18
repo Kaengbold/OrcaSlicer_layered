@@ -2632,7 +2632,12 @@ std::vector<ExPolygons> painted_modifier_segmentation(const PrintObject         
     if (painted_modifier.painted_modifier_depth > 0.f)
         cut_segmented_layers(input_expolygons, segmented, float(scale_(painted_modifier.painted_modifier_depth)), 0.f, throw_on_cancel_callback);
 
-    std::vector<ExPolygons> out = painted_modifier_top_and_bottom(print_object, painted_modifier, input_expolygons, throw_on_cancel_callback);
+    // Orca: A painted modifier that sets a fine wall layer height refines walls only: paint on faces looking up or down
+    // is not carried through the top and bottom shells, which would refine the walls of the layers it reaches.
+    const bool fine_walls_only = painted_modifier.config.has("layer_refinement_height") &&
+                                 painted_modifier.config.opt_float("layer_refinement_height") > 0.;
+    std::vector<ExPolygons> out = fine_walls_only ? std::vector<ExPolygons>(num_layers) :
+                                                    painted_modifier_top_and_bottom(print_object, painted_modifier, input_expolygons, throw_on_cancel_callback);
     tbb::parallel_for(tbb::blocked_range<size_t>(0, num_layers), [&](const tbb::blocked_range<size_t> &range) {
         for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++ layer_idx) {
             append(out[layer_idx], std::move(segmented[layer_idx][1]));

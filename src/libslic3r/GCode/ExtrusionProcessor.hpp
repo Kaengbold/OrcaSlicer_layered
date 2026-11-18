@@ -498,6 +498,9 @@ class ExtrusionQualityEstimator
     std::unordered_map<const PrintObject*, const Layer*>                      last_prepared_layers;
     std::vector<PrecomputedOverhangLayer>                                     precomputed_layers;
     const PrintObject                                                        *current_object;
+    // Orca: Set while a pass of a fine wall is estimated: the outline of the pass under it, which it rests on instead of
+    // the layer below. The distances precomputed for the layer and its curled lines do not apply then.
+    std::shared_ptr<const AABBTreeLines::LinesDistancer<Linef3>>              override_boundaries;
 
     const PrecomputedOverhangLayer *precomputed_for(const PrintObject *object) const
     {
@@ -514,6 +517,8 @@ class ExtrusionQualityEstimator
 
 public:
     void set_current_object(const PrintObject *object) { current_object = object; }
+    // Orca: See override_boundaries, nullptr to judge against the layer below again.
+    void set_override_boundaries(std::shared_ptr<const AABBTreeLines::LinesDistancer<Linef3>> boundaries) { override_boundaries = std::move(boundaries); }
 
     // Takes the data computed ahead for the layer about to be generated, replacing the previous layer's.
     void set_precomputed_layers(std::vector<PrecomputedOverhangLayer> &&layers) { precomputed_layers = std::move(layers); }
@@ -622,10 +627,11 @@ public:
         // Precomputed distances hold only if they were measured against the layer prev_layer_boundaries is built from.
         const std::unordered_map<Point3, double, Point3Hash> *known = nullptr;
         if (const PrecomputedOverhangLayer *precomputed = precomputed_for(current_object);
-            precomputed != nullptr && precomputed->layer->lower_layer == prev_layer_sources[current_object])
+            ! override_boundaries && precomputed != nullptr && precomputed->layer->lower_layer == prev_layer_sources[current_object])
             known = &precomputed->distances;
-        const Boundaries  &prev_boundaries = or_empty(prev_layer_boundaries[current_object]);
-        const CurledLines &prev_curled     = or_empty(prev_curled_extrusions[current_object]);
+        const Boundaries  &prev_boundaries = override_boundaries ? *override_boundaries : or_empty(prev_layer_boundaries[current_object]);
+        const CurledLines &prev_curled     = override_boundaries ? or_empty(std::shared_ptr<const CurledLines>()) :
+                                                                   or_empty(prev_curled_extrusions[current_object]);
         auto known_distance = [known](const Point3 &point) -> const double * {
             if (known == nullptr)
                 return nullptr;

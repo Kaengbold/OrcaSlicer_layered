@@ -17,6 +17,8 @@
 #include <cstddef>
 #include <cstdlib>
 #include <initializer_list>
+#include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -521,4 +523,53 @@ TEST_CASE("A refined layer keeps its top surfaces ironed", "[LayerRefinement]")
                 if (path->role() == erIroning)
                     ++ ironing;
     CHECK(ironing > 0);
+}
+
+TEST_CASE("All passes of a layer get the same speed on an overhang", "[LayerRefinement]")
+{
+    // A 20 mm box leaning out by 2 mm per mm on one side, refined whole, with overhang speeds and no slowdown for the
+    // layer time. Each pass steps out over the one under it alike, so the passes of a layer print at the same speeds.
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({
+        {"layer_height", std::to_string(layer_height)},
+        {"initial_layer_print_height", std::to_string(layer_height)},
+        {"wall_loops", "2"},
+        {"enable_overhang_speed", "1"},
+        {"slow_down_for_layer_cooling", "0"},
+        {"layer_refinement_height", std::to_string(pass_height)},
+    });
+    const std::string gcode = Test::slice({TriangleMesh({ {0, 0, 0}, {20, 0, 0}, {20, 20, 0}, {0, 20, 0}, {0, 0, 5}, {30, 0, 5}, {30, 20, 5}, {0, 20, 5} },
+                                                        { {0, 2, 1}, {0, 3, 2}, {4, 5, 6}, {4, 6, 7}, {0, 1, 5}, {0, 5, 4}, {1, 2, 6}, {1, 6, 5},
+                                                          {2, 3, 7}, {2, 7, 6}, {3, 0, 4}, {3, 4, 7} })},
+                                          config);
+    // Layer -> pass height -> the speeds its extrusions print at.
+    std::map<std::string, std::map<std::string, std::set<long>>> speeds;
+    std::istringstream lines(gcode);
+    std::string        layer, z, role;
+    long               feedrate = 0;
+    for (std::string line; std::getline(lines, line);) {
+        if (line.rfind(";Z:", 0) == 0)
+            layer = line.substr(3);
+        else if (line.rfind(";TYPE:", 0) == 0)
+            role = line.substr(6);
+        else if (line.rfind("G1 ", 0) == 0) {
+            const std::string move = line.substr(0, line.find(';'));
+            if (const size_t pos = move.find(" F"); pos != std::string::npos)
+                feedrate = std::lround(std::atof(move.c_str() + pos + 2));
+            if (const size_t pos = move.find(" Z"); pos != std::string::npos)
+                z = move.substr(pos + 2, move.find(' ', pos + 1) - pos - 2);
+            if (role == "Fine wall" && move.find(" E") != std::string::npos && move.find(" X") != std::string::npos &&
+                std::atof(move.c_str() + move.find(" E") + 2) > 0.)
+                speeds[layer][z].insert(feedrate);
+        }
+    }
+    size_t compared = 0;
+    for (const auto &[layer_z, passes] : speeds) {
+        if (passes.size() < 2)
+            continue;
+        for (const auto &[pass_z, pass_speeds] : passes)
+            CHECK(pass_speeds == passes.begin()->second);
+        ++ compared;
+    }
+    CHECK(compared > 0);
 }
