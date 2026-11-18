@@ -1943,7 +1943,7 @@ bool PrintObject::invalidate_state_by_config_options(
             || opt_key == "layer_refinement_acceleration"
             || opt_key == "layer_refinement_chain_passes"
             || opt_key == "layer_refinement_travel_without_retraction"
-            || opt_key == "layer_refinement_overhang_fan"
+            || opt_key == "layer_refinement_fan_speed"
             || opt_key == "layer_refinement_z_from_above"
             || opt_key == "bed_mesh_min"
             || opt_key == "bed_mesh_max"

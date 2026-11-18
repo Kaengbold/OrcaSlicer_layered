@@ -830,6 +830,8 @@ protected:
     // ORCA: Add support for role based fan speed control
     std::array<bool, ExtrusionRole::erCount> m_is_role_based_fan_on;
     std::array<int, ExtrusionRole::erCount>  m_role_based_fan_marker_layer;
+    // Orca: The fan speed of the fine wall fan region open in the G-code, see layer_refinement_fan_speed.
+    int                                      m_fine_wall_fan_speed { 0 };
     // Markers for the Pressure Equalizer to recognize the extrusion type.
     // The Pressure Equalizer removes the markers from the final G-code.
     bool                                m_enable_extrusion_role_markers;

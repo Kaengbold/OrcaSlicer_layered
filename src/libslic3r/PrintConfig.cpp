@@ -4338,13 +4338,18 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(5.));
 
-    def = this->add("layer_refinement_overhang_fan", coBool);
-    def->label = L("Fine wall overhang fan");
+    def = this->add("layer_refinement_fan_speed", coInt);
+    def->label = L("Fine wall fan speed");
     def->category = L("Quality");
-    def->tooltip = L("Cools the passes of a fine wall with the overhang fan speed of the filament. The thin passes are printed one "
-                     "right after the other and stay soft without cooling. Needs the overhang fan of the filament to be enabled.");
+    def->tooltip = L("Part cooling fan speed for the passes of a fine wall. The thin passes are printed one right after the "
+                     "other and stay soft without more cooling. The overhang and internal bridge fan speeds take "
+                     "precedence over it.\n\n"
+                     "Set to 0 to use the fan speed of the layer.");
+    def->sidetext = "%";
+    def->min = 0;
+    def->max = 100;
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionBool(false));
+    def->set_default_value(new ConfigOptionInt(0));
 
     def = this->add("layer_refinement_wall_overlap", coPercent);
     def->label = L("Fine wall overlap with inner wall");

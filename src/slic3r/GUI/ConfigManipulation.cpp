@@ -1246,7 +1246,7 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
                 _L("Select a specific support interface filament and use the default support filament to show this setting."));
 
     for (const char *key : {"layer_refinement_scarf_length", "layer_refinement_joint_overlap", "layer_refinement_min_step",
-                             "layer_refinement_travel_without_retraction", "layer_refinement_overhang_fan", "layer_refinement_wall_overlap",
+                             "layer_refinement_travel_without_retraction", "layer_refinement_fan_speed", "layer_refinement_wall_overlap",
                              "layer_refinement_z_from_above", "layer_refinement_chain_passes", "layer_refinement_helical"})
         toggle_line(key, config->opt_float("layer_refinement_height") > 0., -1,
                     _L("Set a fine wall layer height to use this setting."));

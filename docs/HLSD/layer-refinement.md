@@ -144,8 +144,10 @@ the layer is printed yet.
 With `layer_refinement_z_from_above` (on by default), a pass printed above the
 one before is reached from 0.1 mm above it, as a layer is, so that play in the Z
 axis does not change the heights of the passes against each other.
-`layer_refinement_overhang_fan` cools the passes with the overhang fan, and
-`layer_refinement_wall_overlap` scales how far the passes reach into the inner
+`layer_refinement_fan_speed` gives the passes a fan speed of their own: the
+G-code marks them with `;_FINE_WALL_FAN_START S<speed>` and `;_FINE_WALL_FAN_END`,
+and the cooling buffer applies it where no overhang or internal bridge fan speed
+is asked for, as these take precedence. `layer_refinement_wall_overlap` scales how far the passes reach into the inner
 wall, which is printed after them and presses against them.
 
 A travel from a fine wall shorter than `layer_refinement_travel_without_retraction`

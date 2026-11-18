@@ -1506,7 +1506,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloat,                layer_refinement_acceleration))
     ((ConfigOptionFloat,                layer_refinement_speed))
     ((ConfigOptionFloat,                layer_refinement_travel_without_retraction))
-    ((ConfigOptionBool,                 layer_refinement_overhang_fan))
+    ((ConfigOptionInt,                  layer_refinement_fan_speed))
     ((ConfigOptionPercent,              layer_refinement_wall_overlap))
     ((ConfigOptionBool,                 layer_refinement_z_from_above))
     ((ConfigOptionBool,                 layer_refinement_chain_passes))

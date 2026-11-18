@@ -10060,6 +10060,25 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
     char buf[64];
     assert(is_decimal_separator_point());
 
+    // Orca: The passes of a fine wall get their own fan speed, which the cooling buffer applies unless an overhang or
+    // internal bridge fan speed is requested. The speed is a setting of the region, so it travels with the marker.
+    if (m_enable_cooling_markers) {
+        const int fine_wall_fan_speed = fine_wall ? m_config.layer_refinement_fan_speed.value : 0;
+        if (fine_wall_fan_speed > 0) {
+            if (! m_is_role_based_fan_on[erFineWall] || m_role_based_fan_marker_layer[erFineWall] != m_layer_index ||
+                m_fine_wall_fan_speed != fine_wall_fan_speed) {
+                gcode += ";_FINE_WALL_FAN_START S" + std::to_string(fine_wall_fan_speed) + "\n";
+                m_is_role_based_fan_on[erFineWall]         = true;
+                m_role_based_fan_marker_layer[erFineWall] = m_layer_index;
+                m_fine_wall_fan_speed                      = fine_wall_fan_speed;
+            }
+        } else if (m_is_role_based_fan_on[erFineWall]) {
+            gcode += ";_FINE_WALL_FAN_END\n";
+            m_is_role_based_fan_on[erFineWall]         = false;
+            m_role_based_fan_marker_layer[erFineWall] = -1;
+        }
+    }
+
     // Orca: The G-code viewer shows the passes of a fine wall as a feature type of their own.
     if (const ExtrusionRole processor_role = fine_wall ? erFineWall : path.role(); processor_role != m_last_processor_extrusion_role) {
         m_last_processor_extrusion_role = processor_role;
@@ -10130,10 +10149,6 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
     if (enable_overhang_bridge_fan &&
         (path.role() == erBridgeInfill || path.role() == erOverhangPerimeter ||
          (overhang_fan_threshold == Overhang_threshold_none && is_external_perimeter(path.role()))))
-        path_overhang_fan_active = true;
-    // Orca: The passes of a fine wall may be cooled with the overhang fan as a whole.
-    const bool fine_wall_fan = enable_overhang_bridge_fan && fine_wall && m_config.layer_refinement_overhang_fan.value;
-    if (fine_wall_fan)
         path_overhang_fan_active = true;
 
     //    { "0%", Overhang_threshold_none },
@@ -10416,7 +10431,7 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
         bool pre_fan_enabled = false;
         bool cur_fan_enabled = false;
         if( m_enable_cooling_markers && enable_overhang_bridge_fan)
-            pre_fan_enabled = fine_wall_fan || overhang_fan_active(new_points[0].overlap, overhang_fan_threshold, path.role());
+            pre_fan_enabled = overhang_fan_active(new_points[0].overlap, overhang_fan_threshold, path.role());
         
         if(path.role() == erInternalBridgeInfill) // ORCA: Add support for separate internal bridge fan speed control
             pre_fan_enabled = true;
@@ -10430,7 +10445,7 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
             tag_belt_band(Point3((pre_processed_point.p + processed_point.p) / 2));
             if (m_enable_cooling_markers) {
                 if (enable_overhang_bridge_fan) {
-                    cur_fan_enabled = fine_wall_fan || overhang_fan_active(processed_point.overlap, overhang_fan_threshold, path.role());
+                    cur_fan_enabled = overhang_fan_active(processed_point.overlap, overhang_fan_threshold, path.role());
                     append_role_based_fan_marker(erOverhangPerimeter, "_OVERHANG"sv, pre_fan_enabled && cur_fan_enabled);
                     pre_fan_enabled = cur_fan_enabled;
 

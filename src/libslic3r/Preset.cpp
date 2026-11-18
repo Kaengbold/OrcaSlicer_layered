@@ -1270,7 +1270,7 @@ static std::vector<std::string> s_Preset_print_options{
     "support_ironing_flow",
     "support_ironing_spacing",
     "max_travel_detour_distance",
-    "layer_refinement_height", "layer_refinement_scarf_length", "layer_refinement_joint_overlap", "layer_refinement_min_step", "layer_refinement_acceleration", "layer_refinement_speed", "layer_refinement_travel_without_retraction", "layer_refinement_overhang_fan", "layer_refinement_wall_overlap", "layer_refinement_z_from_above", "layer_refinement_chain_passes", "layer_refinement_helical",
+    "layer_refinement_height", "layer_refinement_scarf_length", "layer_refinement_joint_overlap", "layer_refinement_min_step", "layer_refinement_acceleration", "layer_refinement_speed", "layer_refinement_travel_without_retraction", "layer_refinement_fan_speed", "layer_refinement_wall_overlap", "layer_refinement_z_from_above", "layer_refinement_chain_passes", "layer_refinement_helical",
     "fuzzy_skin", "fuzzy_skin_thickness", "fuzzy_skin_point_distance", "fuzzy_skin_first_layer", "fuzzy_skin_noise_type", "fuzzy_skin_mode", "fuzzy_skin_scale", "fuzzy_skin_octaves", "fuzzy_skin_persistence", "fuzzy_skin_ripples_per_layer", "fuzzy_skin_ripple_offset", "fuzzy_skin_layers_between_ripple_offset",
     "max_volumetric_extrusion_rate_slope", "max_volumetric_extrusion_rate_slope_segment_length","extrusion_rate_smoothing_external_perimeter_only",
     "inner_wall_speed", "outer_wall_speed", "sparse_infill_speed", "internal_solid_infill_speed",
