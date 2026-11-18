@@ -9489,6 +9489,11 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
     gcode += this->unretract();
     m_config.apply(m_calib_config);
 
+    // Orca: A wall thinner than the layer in a refined region is a pass of the fine wall, or the wall of the layer
+    // thinned over a scarf joint.
+    const bool fine_wall = m_config.layer_refinement_height.value > 0 && m_layer != nullptr &&
+        (path.role() == erExternalPerimeter || path.role() == erPerimeter) && path.height < m_layer->height - EPSILON;
+
     // Orca: optimize for Klipper, set acceleration and jerk in one command
     unsigned int acceleration_i = 0;
     double jerk = 0;
@@ -9515,10 +9520,7 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
             acceleration = sparse_infill_acceleration;
         } else if (internal_solid_infill_acceleration > 0) {
             acceleration = internal_solid_infill_acceleration;
-        } else if (m_config.layer_refinement_acceleration.value > 0 && m_config.layer_refinement_height.value > 0 && m_layer != nullptr &&
-                   (role == erExternalPerimeter || role == erPerimeter) && path.height < m_layer->height - EPSILON) {
-            // Orca: A wall thinner than the layer in a refined region is a pass of the fine wall, or the wall of the layer
-            // thinned over a scarf joint.
+        } else if (fine_wall && m_config.layer_refinement_acceleration.value > 0) {
             acceleration = m_config.layer_refinement_acceleration.value;
         } else if (m_config.outer_wall_acceleration.get_at(nozzle) > 0 && is_external_perimeter(role)) {
             acceleration = m_config.outer_wall_acceleration.get_at(nozzle);
@@ -9616,7 +9618,11 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
 
     // set speed
     if (speed == -1) {
-        if (path.role() == erPerimeter) {
+        if (fine_wall && m_config.layer_refinement_speed.value > 0) {
+            speed = m_config.layer_refinement_speed.value;
+            if (sloped)
+                speed = std::min(speed, m_config.scarf_joint_speed.get_abs_value(speed));
+        } else if (path.role() == erPerimeter) {
             speed = NOZZLE_CONFIG(inner_wall_speed);
             if (sloped) {
                 speed = std::min(speed, m_config.scarf_joint_speed.get_abs_value(speed));

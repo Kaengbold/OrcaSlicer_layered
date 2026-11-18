@@ -47,22 +47,27 @@ protected:
     EnforcerBlockerType get_right_button_state_type() const override { return EnforcerBlockerType::NONE; }
     bool                is_mesh_paintable(int mesh_id) const override;
 
-private:
     bool on_init() override;
 
     void update_model_object() override;
     void update_from_model_object(bool first_update) override;
 
-    void             on_opening() override {}
-    void             on_shutdown() override;
-    PainterGizmoType get_painter_type() const override { return PainterGizmoType::PAINTED_MODIFIER; }
+    // Orca: Controls a derived tool adds to the window, above the brush.
+    virtual void on_render_extra_input(float sliders_left_width, float sliders_width) {}
 
     ModelVolume *target(const ModelObject &mo) const;
-    void         render_tooltip_button(float x, float y);
 
     ObjectID m_target_id;
     // Index of the target's host among the model parts, -1 when the target has no host.
     int      m_target_mesh_id { -1 };
+
+private:
+    void             on_opening() override {}
+    void             on_shutdown() override;
+    PainterGizmoType get_painter_type() const override { return PainterGizmoType::PAINTED_MODIFIER; }
+
+    void         render_tooltip_button(float x, float y);
+
     float    m_depth { 0.f };
     wchar_t  m_current_tool { 0 };
 

@@ -209,6 +209,8 @@ set(lisbslic3r_sources
     TextureToColor/TextureToColor.cpp
     TextureToColor/ColorUtils.hpp
     TextureToColor/ColorUtils.cpp
+    FineWallSuggestion.cpp
+    FineWallSuggestion.hpp
     Flow.cpp
     Flow.hpp
     FlushVolCalc.cpp

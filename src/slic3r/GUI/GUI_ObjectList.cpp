@@ -105,6 +105,7 @@
 #include <wx/renderer.h>
 #endif /* __WXMSW__ */
 #include "Gizmos/GLGizmoScale.hpp"
+#include "Gizmos/GLGizmoFineWalls.hpp"
 #include "Gizmos/GLGizmoPaintedModifier.hpp"
 #include "Gizmos/GLGizmosManager.hpp"
 
@@ -5837,10 +5838,13 @@ ModelVolume *ObjectList::add_painted_modifier(int obj_idx, const ModelVolume &ho
 void ObjectList::open_painted_modifier_tool(const ModelVolume &painted_modifier)
 {
     GLGizmosManager &gizmos_mgr = wxGetApp().plater()->get_view3D_canvas3D()->get_gizmos_manager();
-    if (auto *gizmo = dynamic_cast<GLGizmoPaintedModifier *>(gizmos_mgr.get_gizmo(GLGizmosManager::EType::PaintedModifier)))
+    // Orca: A painted modifier that sets a fine wall layer height is edited in the fine walls tool.
+    const GLGizmosManager::EType type = GLGizmoFineWalls::is_fine_wall_modifier(painted_modifier) ?
+        GLGizmosManager::EType::FineWalls : GLGizmosManager::EType::PaintedModifier;
+    if (auto *gizmo = dynamic_cast<GLGizmoPaintedModifier *>(gizmos_mgr.get_gizmo(type)))
         gizmo->set_target(&painted_modifier);
-    if (gizmos_mgr.get_current_type() != GLGizmosManager::EType::PaintedModifier)
-        gizmos_mgr.open_gizmo(GLGizmosManager::EType::PaintedModifier);
+    if (gizmos_mgr.get_current_type() != type)
+        gizmos_mgr.open_gizmo(type);
 }
 
 void ObjectList::add_painted_modifier()

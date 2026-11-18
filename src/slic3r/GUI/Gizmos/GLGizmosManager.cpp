@@ -16,6 +16,7 @@
 //#include "slic3r/GUI/Gizmos/GLGizmoSlaSupports.hpp"
 #include "slic3r/GUI/Gizmos/GLGizmoFdmSupports.hpp"
 #include "slic3r/GUI/Gizmos/GLGizmoFuzzySkin.hpp"
+#include "slic3r/GUI/Gizmos/GLGizmoFineWalls.hpp"
 #include "slic3r/GUI/Gizmos/GLGizmoPaintedModifier.hpp"
 #include "slic3r/GUI/Gizmos/GLGizmoBrimEars.hpp"
 #include "slic3r/GUI/Gizmos/GLGizmoCut.hpp"
@@ -197,6 +198,9 @@ void GLGizmosManager::switch_gizmos_icon_filename()
         case(EType::PaintedModifier):
             gizmo->set_icon_filename(m_is_dark ? "toolbar_painted_modifier_dark.svg" : "toolbar_painted_modifier.svg");
             break;
+        case(EType::FineWalls):
+            gizmo->set_icon_filename(m_is_dark ? "toolbar_fine_walls_dark.svg" : "toolbar_fine_walls.svg");
+            break;
         case(EType::TextureDisplacement):
             // One shared icon in both themes (no dedicated dark variant yet) - but it must still be
             // *this* gizmo's icon. Handing it the fuzzy-skin one here quietly replaced the icon set at
@@ -254,6 +258,7 @@ bool GLGizmosManager::init()
     m_gizmos.emplace_back(new GLGizmoFuzzySkin(m_parent, m_is_dark ? "toolbar_fuzzy_skin_paint_dark.svg" : "toolbar_fuzzy_skin_paint.svg", EType::FuzzySkin));
     m_gizmos.emplace_back(new GLGizmoMmuSegmentation(m_parent, m_is_dark ? "mmu_segmentation_dark.svg" : "mmu_segmentation.svg", EType::MmSegmentation));
     m_gizmos.emplace_back(new GLGizmoPaintedModifier(m_parent, m_is_dark ? "toolbar_painted_modifier_dark.svg" : "toolbar_painted_modifier.svg", EType::PaintedModifier));
+    m_gizmos.emplace_back(new GLGizmoFineWalls(m_parent, m_is_dark ? "toolbar_fine_walls_dark.svg" : "toolbar_fine_walls.svg", EType::FineWalls));
     // One shared icon (no dedicated dark variant yet); it recolours acceptably in both themes.
     m_gizmos.emplace_back(new GLGizmoTextureDisplacement(m_parent, "toolbar_texture_displacement.svg", EType::TextureDisplacement));
     m_gizmos.emplace_back(new GLGizmoEmboss(m_parent, m_is_dark ? "toolbar_text_dark.svg" : "toolbar_text.svg", EType::Emboss));
@@ -506,7 +511,7 @@ void GLGizmosManager::set_hover_id(int id)
 void GLGizmosManager::update_section_view()
 {
     if (m_current != FdmSupports && m_current != Seam && m_current != MmSegmentation && m_current != FuzzySkin && m_current != PaintedModifier &&
-        m_current != BrimEars)
+        m_current != FineWalls && m_current != BrimEars)
         return;
 
     CommonGizmosDataObjects::ObjectClipper* clipper = m_common_gizmos_data ? m_common_gizmos_data->object_clipper() : nullptr;
@@ -615,6 +620,8 @@ bool GLGizmosManager::gizmo_event(SLAGizmoEventType action, const Vec2d& mouse_p
         return dynamic_cast<GLGizmoFuzzySkin*>(m_gizmos[FuzzySkin].get())->gizmo_event(action, mouse_position, shift_down, alt_down, control_down);
     else if (m_current == PaintedModifier)
         return dynamic_cast<GLGizmoPaintedModifier*>(m_gizmos[PaintedModifier].get())->gizmo_event(action, mouse_position, shift_down, alt_down, control_down);
+    else if (m_current == FineWalls)
+        return dynamic_cast<GLGizmoFineWalls*>(m_gizmos[FineWalls].get())->gizmo_event(action, mouse_position, shift_down, alt_down, control_down);
     else if (m_current == TextureDisplacement)
         return dynamic_cast<GLGizmoTextureDisplacement*>(m_gizmos[TextureDisplacement].get())->gizmo_event(action, mouse_position, shift_down, alt_down, control_down);
     else if (m_current == MeshBoolean)
@@ -631,6 +638,7 @@ bool GLGizmosManager::is_paint_gizmo()
            m_current == EType::MmSegmentation ||
            m_current == EType::FuzzySkin ||
            m_current == EType::PaintedModifier ||
+           m_current == EType::FineWalls ||
            m_current == EType::TextureDisplacement ||
            m_current == EType::Seam;
 }
@@ -741,7 +749,7 @@ bool GLGizmosManager::on_mouse_wheel(const wxMouseEvent &evt)
     bool processed = false;
 
     if (/*m_current == SlaSupports || m_current == Hollow ||*/ m_current == FdmSupports || m_current == Seam || m_current == MmSegmentation || m_current == FuzzySkin ||
-        m_current == PaintedModifier || m_current == BrimEars) {
+        m_current == PaintedModifier || m_current == FineWalls || m_current == BrimEars) {
         float rot = (float)evt.GetWheelRotation() / (float)evt.GetWheelDelta();
         if (gizmo_event((rot > 0.f ? SLAGizmoEventType::MouseWheelUp : SLAGizmoEventType::MouseWheelDown), Vec2d::Zero(), evt.ShiftDown(), evt.AltDown()
             // BBS
@@ -1580,6 +1588,8 @@ std::string get_name_from_gizmo_etype(GLGizmosManager::EType type)
         return "Texture Displacement";
     case GLGizmosManager::EType::PaintedModifier:
         return "Painted Modifier";
+    case GLGizmosManager::EType::FineWalls:
+        return "Fine Walls";
     default:
         return "";
     }

@@ -422,3 +422,21 @@ TEST_CASE("A fine wall acceleration is set for the passes", "[LayerRefinement]")
     CHECK(gcode_with("777").find("M204 P777") != std::string::npos);
     CHECK(gcode_with("0").find("M204 P777") == std::string::npos);
 }
+
+TEST_CASE("Inner walls keep the layer height where only one side of a layer moves inwards", "[LayerRefinement]")
+{
+    // A 20 mm box whose side at x = 20 leans out by 2 mm per mm of height. The passes of a layer on that side lie
+    // further in the lower they are, so their outer walls run over the inner wall of the layer there, and only there.
+    Print print;
+    slice(print, TriangleMesh({ {0, 0, 0}, {20, 0, 0}, {20, 20, 0}, {0, 20, 0}, {0, 0, 5}, {30, 0, 5}, {30, 20, 5}, {0, 20, 5} },
+                              { {0, 2, 1}, {0, 3, 2}, {4, 5, 6}, {4, 6, 7}, {0, 1, 5}, {0, 5, 4}, {1, 2, 6}, {1, 6, 5},
+                                {2, 3, 7}, {2, 7, 6}, {3, 0, 4}, {3, 4, 7} }),
+          pass_height);
+    const LayerPaths paths = paths_of(middle_layer(print));
+    double inner_wall_length = 0.;
+    for (const ExtrusionPath *path : paths.at_print_z)
+        if (path->role() == erPerimeter && std::abs(path->height - layer_height) < 1e-4)
+            inner_wall_length += unscale<double>(path->length());
+    // The three upright sides, about 19 mm each, keep their inner wall at the layer height.
+    CHECK(inner_wall_length > 50.);
+}

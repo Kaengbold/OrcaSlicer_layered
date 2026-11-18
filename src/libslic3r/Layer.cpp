@@ -708,10 +708,10 @@ static void make_refinement_helices(RefinementIslands &pass_islands, double pass
 // the outline of the object at its own height. Behind them the layer is printed as it is, at its full height.
 //
 // The passes fill the fine zone: what any pass covers, less the core, which is where the layer keeps its own
-// extrusions. The core lies behind as many walls of the layer as it takes for the pass with the smallest outline to
-// still have its outer wall in front of the core. On an upright wall that is one wall, so the passes replace the outer
-// wall only. On a slope the outlines of the passes spread apart and the zone widens over further walls, and a feature
-// too thin for a core is printed by the passes alone.
+// extrusions. The core lies behind the outer wall of the layer, so the passes replace the outer wall only and the inner
+// walls keep the layer height. Where a pass outline lies further out, the zone widens to it; where it lies further in,
+// only that stretch of the inner walls is cut out of the core. A feature too thin for a core is printed by the passes
+// alone.
 void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_slices)
 {
     // Regions refined into the same number of passes are refined as one, with the settings of the first of them.
@@ -796,21 +796,14 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
             restricted = true;
         }
 
-        // The core starts behind the first wall of the layer that leaves every pass room for its outer wall,
-        // allowing the outlines a quarter of a wall of deviation. Without such a wall, the passes replace them all.
+        // The core starts behind the outer wall of the layer, so that its inner walls stay at the layer height. Only
+        // where the outer wall of a pass would run over an inner wall, as where the outline moves inwards, is that
+        // stretch cut out of the core, allowing the outlines a quarter of a wall of deviation. A feature too thin for
+        // a core is cut out whole.
         const coord_t  tolerance = ext_flow.scaled_width() / 4;
         const Polygons safe      = offset(common, - float(wall_depth - tolerance));
-        Polygons       core;
-        bool           walled    = false;
-        for (int wall = 0; wall < wall_loops && ! walled; ++ wall) {
-            Polygons behind = offset(outline, - float(wall_depth + wall * wall_step));
-            if (opening(diff(intersection(behind, zone_area), safe), float(tolerance / 2)).empty()) {
-                core   = std::move(behind);
-                walled = true;
-            }
-        }
-        if (! walled)
-            core = intersection(safe, offset(outline, - float(wall_depth + (wall_loops - 1) * wall_step)));
+        const Polygons behind    = offset(outline, - float(wall_depth));
+        const Polygons core      = diff(behind, opening(diff(intersection(behind, zone_area), safe), float(tolerance / 2)));
 
         const Polygons shell = diff(all, core);
         const Polygons zone  = intersection(zone_area, shell);

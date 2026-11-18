@@ -1504,6 +1504,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloat,                layer_refinement_joint_overlap))
     ((ConfigOptionFloat,                layer_refinement_min_step))
     ((ConfigOptionFloat,                layer_refinement_acceleration))
+    ((ConfigOptionFloat,                layer_refinement_speed))
     ((ConfigOptionBool,                 layer_refinement_chain_passes))
     ((ConfigOptionBool,                 layer_refinement_helical))
     ((ConfigOptionEnum<FuzzySkinType>,  fuzzy_skin))

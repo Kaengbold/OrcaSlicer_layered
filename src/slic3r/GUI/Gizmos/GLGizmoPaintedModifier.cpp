@@ -202,6 +202,8 @@ void GLGizmoPaintedModifier::on_render_input_window(float x, float y, float bott
         m_imgui->tooltip(m_desc["depth_tooltip"], max_tooltip_width);
     m_imgui->disabled_end();
 
+    on_render_extra_input(sliders_left_width, sliders_width);
+
     ImGui::Separator();
 
     ImGui::AlignTextToFramePadding();

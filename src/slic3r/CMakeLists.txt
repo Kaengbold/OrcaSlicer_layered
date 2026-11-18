@@ -203,6 +203,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/Gizmos/GLGizmoMmuSegmentation.hpp
     GUI/Gizmos/GLGizmoMove.cpp
     GUI/Gizmos/GLGizmoMove.hpp
+    GUI/Gizmos/GLGizmoFineWalls.cpp
+    GUI/Gizmos/GLGizmoFineWalls.hpp
     GUI/Gizmos/GLGizmoPaintedModifier.cpp
     GUI/Gizmos/GLGizmoPaintedModifier.hpp
     GUI/Gizmos/GLGizmoPainterBase.cpp

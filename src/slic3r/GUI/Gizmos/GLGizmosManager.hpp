@@ -96,6 +96,7 @@ public:
         FuzzySkin,
         MmSegmentation,
         PaintedModifier,
+        FineWalls,
         TextureDisplacement,
         Emboss,
         Svg,

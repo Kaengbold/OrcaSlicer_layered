@@ -4280,7 +4280,7 @@ void PrintConfigDef::init_fff_params()
     def->min = 0;
     def->max = 50;
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(0.));
+    def->set_default_value(new ConfigOptionFloat(0.2));
 
     def = this->add("layer_refinement_joint_overlap", coFloat);
     def->label = L("Fine wall joint overlap");
@@ -4291,7 +4291,7 @@ void PrintConfigDef::init_fff_params()
     def->min = 0;
     def->max = 5;
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(0.3));
+    def->set_default_value(new ConfigOptionFloat(0.));
 
     def = this->add("layer_refinement_min_step", coFloat);
     def->label = L("Fine wall minimum step");
@@ -4306,12 +4306,22 @@ void PrintConfigDef::init_fff_params()
     def->set_default_value(new ConfigOptionFloat(0.));
 
     def = this->add("layer_refinement_acceleration", coFloat);
-    def->label = L("Fine wall acceleration");
+    def->label = L("Fine wall");
     def->category = L("Speed");
     def->tooltip = L("Acceleration of the passes of the fine wall. The passes are thin and carry little material, so they can often "
                      "be printed with a higher acceleration than the outer wall.\n\n"
-                     "Set to 0 to use the acceleration of the walls they replace.");
+                     "Until it is changed, it follows the outer wall acceleration. Set to 0 to follow it again.");
     def->sidetext = L(u8"mm/s²");	// millimeters per second per second, CIS languages need translation
+    def->min = 0;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
+    def = this->add("layer_refinement_speed", coFloat);
+    def->label = L("Fine wall");
+    def->category = L("Speed");
+    def->tooltip = L("Speed of the passes of the fine wall.\n\n"
+                     "Until it is changed, it follows the outer wall speed. Set to 0 to follow it again.");
+    def->sidetext = L("mm/s");	// millimeters per second, CIS languages need translation
     def->min = 0;
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0.));

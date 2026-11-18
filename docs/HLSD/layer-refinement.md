@@ -44,16 +44,19 @@ Refinement runs at the end of the perimeter step
    zone, and each pass fills its part of the zone with concentric lines from its
    own outline inwards.
 
-The core is where the layer keeps its own extrusions. It starts behind the first
-wall of the layer that leaves every pass room for its outer wall, with a quarter
-of a wall width of tolerance. This one rule covers the cases:
+The core is where the layer keeps its own extrusions. It starts behind the outer
+wall of the layer, so the inner walls keep the layer height. Only where the outer
+wall of a pass would run over an inner wall, by more than a quarter of a wall
+width, is that stretch cut out of the core. The decision is local: a slope on one
+side of a layer leaves the inner walls of its other sides alone. This one rule
+covers the cases:
 
 | Geometry | Fine zone |
 | --- | --- |
-| Upright wall | The outlines coincide, the core starts behind the outer wall: the passes replace the outer wall only. |
-| Slope, dome | The outlines spread apart, the core retreats behind further walls and the passes fill the steps. |
+| Upright wall | The outlines coincide: the passes replace the outer wall only. |
+| Outline moving outwards (the passes lie further out the lower they are) | The zone widens outwards and the passes fill the steps in front of the inner wall. |
+| Outline moving inwards (an overhang, a flaring bow) | The stretch of the inner walls the lower passes run over is cut out and printed by the passes; the rest of the inner walls keep the layer height. |
 | Feature too thin for a core | The passes print all of it, solid. |
-| No wall of the layer leaves room | All walls are replaced, and the core is cut back to what every pass covers. |
 
 Because the core lies inside every pass outline, no thick line of the layer can
 stick out of the fine surface.
@@ -77,11 +80,12 @@ the depth of the core is decided per layer for all of these regions together.
 ### Joints
 
 Where a refined region ends on a wall that carries on at the layer height, the
-fine lines and the thick wall meet in a joint. The fine lines run
-`layer_refinement_joint_overlap` (0.3 mm by default) into the thick wall, to fill
-the gap its rounded end leaves next to the thin passes.
+fine lines and the thick wall meet in a joint. The fine lines can run
+`layer_refinement_joint_overlap` (0 by default) into the thick wall, to fill the
+gap its rounded end leaves next to the thin passes.
 
-With `layer_refinement_scarf_length` above 0, the joint is a stepped scarf. The
+With `layer_refinement_scarf_length` above 0 (0.2 mm by default), the joint is a
+stepped scarf. The
 scarf length is divided into one step fewer than there are passes. The lower
 passes run further into the thick wall, one more step for each pass down, and
 over each step the thick wall is extruded with the share of the layer height
@@ -133,8 +137,10 @@ every pass. The nozzle goes down once per island, onto an island where nothing o
 the layer is printed yet.
 
 A wall thinner than the layer in a refined region, which is a pass or the wall
-of the layer thinned over a scarf, is printed with
-`layer_refinement_acceleration` when it is set.
+of the layer thinned over a scarf, is printed with `layer_refinement_speed` and
+`layer_refinement_acceleration`. At 0 they follow the outer and inner wall
+values; the settings page then shows the outer wall value in their fields, while
+the stored value stays 0 until it is edited.
 
 Consequences:
 
@@ -145,6 +151,34 @@ Consequences:
 Tool ordering registers the outer wall filament for a layer region that holds
 passes even when it has no other walls, and the object is then visited with that
 filament although none of its islands has extrusions for it.
+
+## Suggestions
+
+The fine walls tool (`GLGizmoFineWalls`) in the 3D view toolbar chooses where
+fine walls go. It is the painted modifier tool (see
+[painted-modifiers.md](painted-modifiers.md)) for painted modifiers that set
+`layer_refinement_height`: the first stroke creates one on the part it paints.
+
+`suggest_fine_walls()` (`FineWallSuggestion.cpp`) scores every facet of a part by
+the horizontal step a layer leaves on it, `H · |n_z| / sqrt(1 − n_z²)`, as in
+adaptive layer height; flat tops and bottoms score 0. It selects facets by mode:
+
+| Mode | Selected |
+| --- | --- |
+| Paint only | Nothing; the heat map shows the score of every face. |
+| All outward-facing walls | Every wall facet. |
+| Walls with visible layer steps | Wall facets stepping at least the minimum step, and, optionally, overhangs past an angle. |
+
+With "only faces seen from outside", a facet is kept only when at least one of
+four rays from it (along its normal, tilted up, and tilted to either side)
+leaves the part, which drops cavities and the insides of holes.
+
+The heat map colours the selected facets from blue (small gain) to red (large
+gain) and leaves the others grey. "Apply suggestion" replaces the paint of the
+fine wall modifier of each part with the selection, creating the modifier where
+there is none; the result is ordinary paint, edited with the brush and saved in
+the project like any painted modifier. In the G-code preview, the layer height
+view shows where the passes went.
 
 ## Known limitations
 

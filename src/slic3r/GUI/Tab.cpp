@@ -3046,7 +3046,6 @@ void TabPrint::build()
         optgroup->append_single_option_line("layer_refinement_min_step");
         optgroup->append_single_option_line("layer_refinement_chain_passes");
         optgroup->append_single_option_line("layer_refinement_helical");
-        optgroup->append_single_option_line("layer_refinement_acceleration");
         optgroup->append_single_option_line("enable_mixed_color_sublayer");
 
         optgroup = page->new_optgroup(L("Line width"), L"param_line_width");
@@ -3265,6 +3264,7 @@ void TabPrint::build()
         optgroup->append_single_option_line("slow_down_layers", "speed_settings_initial_layer_speed#number-of-slow-layers");
         optgroup = page->new_optgroup(L("Other layers speed"), L"param_speed", 15);
         optgroup->append_single_option_line("outer_wall_speed", "speed_settings_other_layers_speed#outer-wall", 0);
+        optgroup->append_single_option_line("layer_refinement_speed");
         optgroup->append_single_option_line("inner_wall_speed", "speed_settings_other_layers_speed#inner-wall", 0);
         optgroup->append_single_option_line("small_perimeter_speed", "speed_settings_other_layers_speed#small-perimeters", 0);
         optgroup->append_single_option_line("small_perimeter_threshold", "speed_settings_other_layers_speed#small-perimeters-threshold", 0);
@@ -3300,6 +3300,7 @@ void TabPrint::build()
         optgroup = page->new_optgroup(L("Acceleration"), L"param_acceleration", 15);
         optgroup->append_single_option_line("default_acceleration", "speed_settings_acceleration#normal-printing", 0);
         optgroup->append_single_option_line("outer_wall_acceleration", "speed_settings_acceleration#outer-wall", 0);
+        optgroup->append_single_option_line("layer_refinement_acceleration");
         optgroup->append_single_option_line("inner_wall_acceleration", "speed_settings_acceleration#inner-wall", 0);
         optgroup->append_single_option_line("bridge_acceleration", "speed_settings_acceleration#bridge", 0);
         optgroup->append_single_option_line("sparse_infill_acceleration", "speed_settings_acceleration#sparse-infill", 0);
@@ -3608,6 +3609,17 @@ void TabPrint::toggle_options()
     }
 
     m_config_manipulation.toggle_print_fff_options(m_config, int(intptr_t(m_extruder_switch->GetClientData())), m_type < Preset::TYPE_COUNT);
+
+    // Orca: The fine wall speed and acceleration follow the outer wall while they are 0, so show the value they follow.
+    // Only the field shows it; the setting stays 0 until it is edited.
+    for (const auto &[key, followed] : { std::pair<std::string, std::string>{ "layer_refinement_speed", "outer_wall_speed" },
+                                         std::pair<std::string, std::string>{ "layer_refinement_acceleration", "outer_wall_acceleration" } }) {
+        const auto *value  = m_config->option<ConfigOptionFloat>(key);
+        const auto *values = m_config->option<ConfigOptionFloatsNullable>(followed);
+        Field      *field  = m_active_page->get_field(key);
+        if (value != nullptr && value->value == 0. && values != nullptr && ! values->values.empty() && ! values->is_nil(0) && field != nullptr)
+            field->set_value(boost::any(wxString(double_to_string(values->get_at(0)))), false);
+    }
 
     if (m_type == Preset::TYPE_PLATE) {
         const auto &printer_config = m_preset_bundle->printers.get_edited_preset().config;
