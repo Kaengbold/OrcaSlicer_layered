@@ -7754,9 +7754,52 @@ LayerResult GCode::process_layer(
                     std::stable_sort(extrusions.begin(), extrusions.end(), [](const PassExtrusion &l, const PassExtrusion &r) {
                         return l.chain < r.chain || (l.chain == r.chain && l.pass->z_offset < r.pass->z_offset);
                     });
+                    // Within a pass, the extrusions go nearest first, an open one from its end nearer to the nozzle, so that
+                    // the passes of an open stretch go back and forth instead of each travelling back to the same end.
+                    const auto first_of = [](const PassExtrusion &e) -> const ExtrusionEntity & {
+                        return e.pass->turn_offsets.empty() ? *e.pass->extrusions.entities[e.idx] : *e.pass->extrusions.entities.front();
+                    };
+                    std::vector<std::pair<const PassExtrusion*, bool>> ordered; // extrusion, reversed
+                    ordered.reserve(extrusions.size());
+                    Point position = this->last_pos();
+                    for (size_t begin = 0; begin < extrusions.size();) {
+                        size_t end = begin + 1;
+                        while (end < extrusions.size() && extrusions[end].chain == extrusions[begin].chain && extrusions[end].pass == extrusions[begin].pass)
+                            ++ end;
+                        std::vector<bool> done(end - begin, false);
+                        for (size_t num_done = 0; num_done < end - begin; ++ num_done) {
+                            size_t best          = begin;
+                            bool   best_reversed = false;
+                            double best_sqr      = std::numeric_limits<double>::max();
+                            for (size_t idx = begin; idx < end; ++ idx) {
+                                if (done[idx - begin])
+                                    continue;
+                                const ExtrusionEntity &entity = first_of(extrusions[idx]);
+                                if (const double sqr = (entity.first_point() - position).cast<double>().squaredNorm(); sqr < best_sqr) {
+                                    best = idx;
+                                    best_reversed = false;
+                                    best_sqr = sqr;
+                                }
+                                if (extrusions[idx].pass->turn_offsets.empty() && ! entity.is_loop() && entity.can_reverse())
+                                    if (const double sqr = (entity.last_point() - position).cast<double>().squaredNorm(); sqr < best_sqr) {
+                                        best = idx;
+                                        best_reversed = true;
+                                        best_sqr = sqr;
+                                    }
+                            }
+                            done[best - begin] = true;
+                            ordered.emplace_back(&extrusions[best], best_reversed);
+                            const PassExtrusion &chosen = extrusions[best];
+                            position = ! chosen.pass->turn_offsets.empty() ? chosen.pass->extrusions.entities.back()->last_point() :
+                                       best_reversed ? first_of(chosen).first_point() : first_of(chosen).last_point();
+                        }
+                        begin = end;
+                    }
+
                     const coordf_t layer_nominal_z = m_nominal_z;
                     const PassExtrusion *last = nullptr;
-                    for (const PassExtrusion &extrusion : extrusions) {
+                    for (const auto &[extrusion_ptr, reversed] : ordered) {
+                        const PassExtrusion &extrusion = *extrusion_ptr;
                         // A pass that is not chained starts with a lift, as does each chain.
                         const bool lift = last == nullptr || extrusion.chain != last->chain ||
                             (extrusion.chain < 0 && (extrusion.pass != last->pass || extrusion.layerm != last->layerm));
@@ -7768,7 +7811,12 @@ LayerResult GCode::process_layer(
                             m_nominal_z = layer_nominal_z + extrusion.pass->z_offset;
                             if (lift)
                                 m_need_change_layer_lift_z = true;
-                            gcode += this->extrude_entity(*entities[extrusion.idx], "perimeter", -1., region_extrusions);
+                            std::unique_ptr<ExtrusionEntity> reversed_entity;
+                            if (reversed) {
+                                reversed_entity.reset(entities[extrusion.idx]->clone());
+                                reversed_entity->reverse();
+                            }
+                            gcode += this->extrude_entity(reversed ? *reversed_entity : *entities[extrusion.idx], "perimeter", -1., region_extrusions);
                         } else {
                             for (size_t turn = 0; turn < entities.size(); ++ turn) {
                                 m_nominal_z = layer_nominal_z + extrusion.pass->turn_offsets[turn];

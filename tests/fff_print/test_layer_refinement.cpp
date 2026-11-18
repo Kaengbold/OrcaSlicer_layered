@@ -63,9 +63,9 @@ void collect_paths(const ExtrusionEntityCollection &collection, std::vector<cons
 
 struct LayerPaths
 {
-    // Walls and infill printed at print_z.
+    // Walls and infill printed at the layer height.
     std::vector<const ExtrusionPath*> at_print_z;
-    // Passes printed under print_z.
+    // Passes, printed under print_z and the top one at it.
     std::vector<const ExtrusionPath*> under;
     std::vector<double>               pass_z_offsets;
 };
@@ -151,14 +151,14 @@ TEST_CASE("An upright wall is refined into fine outer walls in front of the wall
     slice(print, Test::cube(20), pass_height);
     const LayerPaths paths = paths_of(middle_layer(print));
 
-    // One pass at print_z, the others under it, each a pass height lower.
-    REQUIRE(paths.pass_z_offsets.size() == size_t(pass_count - 1));
-    for (int pass = 0; pass < pass_count - 1; ++ pass)
+    // The top pass at print_z, the others under it, each a pass height lower.
+    REQUIRE(paths.pass_z_offsets.size() == size_t(pass_count));
+    for (int pass = 0; pass < pass_count; ++ pass)
         CHECK_THAT(paths.pass_z_offsets[pass], WithinAbs(- (pass_count - 1 - pass) * pass_height, 1e-6));
 
     // The cube has a single outline: one fine outer wall per pass, and none at the layer height.
-    CHECK(count_paths(paths.under, erExternalPerimeter, pass_height) == size_t(pass_count - 1));
-    CHECK(count_paths(paths.at_print_z, erExternalPerimeter, pass_height) == 1);
+    CHECK(count_paths(paths.under, erExternalPerimeter, pass_height) == size_t(pass_count));
+    CHECK(count_paths(paths.at_print_z, erExternalPerimeter, pass_height) == 0);
     CHECK(count_paths(paths.at_print_z, erExternalPerimeter, layer_height) == 0);
     // Only the outer wall is replaced: the inner wall and the infill stay at the layer height.
     CHECK(count_paths(paths.under, erPerimeter, pass_height) == 0);
@@ -189,10 +189,10 @@ TEST_CASE("A feature too thin for a wall behind the fine one is printed by the p
     Print print;
     slice(print, make_cube(0.7, 0.7, 5.), pass_height);
     const LayerPaths paths = paths_of(middle_layer(print));
-    CHECK(paths.pass_z_offsets.size() == size_t(pass_count - 1));
-    CHECK(count_paths(paths.under, erExternalPerimeter, pass_height) == size_t(pass_count - 1));
-    for (const ExtrusionPath *path : paths.at_print_z)
-        CHECK_THAT(path->height, WithinAbs(pass_height, 1e-4));
+    CHECK(paths.pass_z_offsets.size() == size_t(pass_count));
+    CHECK(count_paths(paths.under, erExternalPerimeter, pass_height) == size_t(pass_count));
+    // Nothing of the layer is printed at its own height.
+    CHECK(paths.at_print_z.empty());
 }
 
 TEST_CASE("A slope is refined over more than its outer wall", "[LayerRefinement]")

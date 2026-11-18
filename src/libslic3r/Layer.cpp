@@ -744,9 +744,6 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
     const Polygons outline = to_polygons(lslices);
     // Where the passes replace the extrusions of the layer.
     Polygons fine_zones;
-    // The top passes, one collection per island. They are printed at print_z as walls of their region, which are
-    // only added once the walls of the layer are removed from the fine zones.
-    std::vector<std::pair<LayerRegion*, std::unique_ptr<ExtrusionEntityCollection>>> top_passes;
     // The steps of the scarf joints, with the share of the layer height the wall of the layer keeps over them.
     std::vector<std::pair<Polygons, double>> scarf_bands;
 
@@ -862,10 +859,6 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
             for (auto &[island, extrusions] : pass_islands[pass]) {
                 if (! extrusions)
                     continue;
-                if (pass + 1 == count) {
-                    top_passes.emplace_back(&layerm, std::move(extrusions));
-                    continue;
-                }
                 refinement_pass.islands.insert(refinement_pass.islands.end(), extrusions->entities.size(), island);
                 refinement_pass.extrusions.append(std::move(extrusions->entities));
             }
@@ -894,8 +887,6 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
                 fill_surfaces.emplace_back(surface, std::move(expoly));
         layerm->fill_surfaces.surfaces = std::move(fill_surfaces);
     }
-    for (auto &[layerm, extrusions] : top_passes)
-        layerm->perimeters.entities.emplace_back(extrusions.release());
 }
 
 void Layer::export_region_slices_to_svg(const char *path) const

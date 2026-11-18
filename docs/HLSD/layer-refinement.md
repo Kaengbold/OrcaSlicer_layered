@@ -108,11 +108,10 @@ not time. Islands with wider fine zones or joints keep flat passes.
 
 ## Data
 
-`LayerRegion::refinement_passes` holds the passes below the top one, lowest
-first, each with its offset under `print_z`. The top pass is printed at
-`print_z` and is stored as one more collection in `LayerRegion::perimeters`, so
-the seam placer plans its seams on the fine outer wall and the lower passes,
-looked up by position, get the same seam.
+`LayerRegion::refinement_passes` holds the passes, lowest first, each with its
+offset under `print_z`, the top one at 0. None of them is part of
+`LayerRegion::perimeters`: the seams of their loops are looked up by position on
+the walls of the layer.
 
 All lines of a pass carry wall index 0, so all of them are printed with the
 outer wall filament. Each line records the island of the layer it belongs to.
@@ -121,12 +120,14 @@ offset under `print_z`; its top turn replaces the top pass of that island.
 
 ## G-code
 
-The passes are not layers. `GCode::process_layer()` prints the lower passes of
-an object at the start of that object's extrusions on the layer, lowest first
-over all regions, by lowering the nominal Z the way the mixed-colour sub-layers
-do, and then prints the layer as usual. Nothing of the layer stands next to a
-pass when it is printed, and the fine walls already stand at `print_z` when the
-thick ones are printed beside them.
+The passes are not layers. `GCode::process_layer()` prints the passes of an
+object at the start of that object's extrusions on the layer, lowest first over
+all regions and the top one last, by lowering the nominal Z the way the
+mixed-colour sub-layers do, and then prints the layer as usual. Nothing of the
+layer stands next to a pass when it is printed, and the fine walls already stand
+at `print_z` when the thick ones are printed beside them. Within a pass the lines
+go nearest first, and an open line starts from its end nearer to the nozzle, so
+that the passes of a stretch go back and forth.
 
 With `layer_refinement_chain_passes`, the passes of the regions with the option
 are printed after the others, island by island, all passes of one island lowest

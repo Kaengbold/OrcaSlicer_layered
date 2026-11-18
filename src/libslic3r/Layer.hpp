@@ -102,8 +102,8 @@ public:
     // (this collection contains only ExtrusionEntityCollection objects)
     ExtrusionEntityCollection   fills;
 
-    // Orca: The passes of the layer refinement below the top one, lowest first. They are printed under print_z,
-    // before the other extrusions of the layer. The top pass is printed at print_z and is a part of `perimeters`.
+    // Orca: The passes of the layer refinement, lowest first, the top one at print_z. They are printed before the
+    // other extrusions of the layer, the lower ones under print_z.
     struct RefinementPass
     {
         // Top of the pass relative to print_z, negative. For a helix, the top of its lowest turn.
