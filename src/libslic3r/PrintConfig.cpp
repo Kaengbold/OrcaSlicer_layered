@@ -4326,6 +4326,18 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0.));
 
+    def = this->add("layer_refinement_travel_without_retraction", coFloat);
+    def->label = L("Fine wall travel without retraction");
+    def->category = L("Quality");
+    def->tooltip = L("A travel from a fine wall shorter than this goes without a retraction, a wipe and a Z hop. On the thin passes "
+                     "of a fine wall broken into stretches, the restart after each retraction shows as a seam.\n\n"
+                     "Set to 0 to retract as usual.");
+    def->sidetext = L("mm");	// millimeters, CIS languages need translation
+    def->min = 0;
+    def->max = 50;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(5.));
+
     def = this->add("layer_refinement_chain_passes", coBool);
     def->label = L("Chain fine wall passes");
     def->category = L("Quality");

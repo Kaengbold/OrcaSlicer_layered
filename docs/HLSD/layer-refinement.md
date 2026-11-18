@@ -136,6 +136,12 @@ seam where the last one ended. This saves the travels between the islands for
 every pass. The nozzle goes down once per island, onto an island where nothing of
 the layer is printed yet.
 
+A travel from a fine wall shorter than `layer_refinement_travel_without_retraction`
+(5 mm by default) goes without a retraction, a wipe and a Z hop: on thin passes,
+the restart after each retraction shows as a seam. Gaps of up to 2 mm between the
+stretches of a fine zone are refined too, so that a painted area broken into
+pieces does not split the fine wall at each of them.
+
 A wall thinner than the layer in a refined region, which is a pass or the wall
 of the layer thinned over a scarf, is printed with `layer_refinement_speed` and
 `layer_refinement_acceleration`, unless they overhang. A pass is judged for

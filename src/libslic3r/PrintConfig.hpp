@@ -1505,6 +1505,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloat,                layer_refinement_min_step))
     ((ConfigOptionFloat,                layer_refinement_acceleration))
     ((ConfigOptionFloat,                layer_refinement_speed))
+    ((ConfigOptionFloat,                layer_refinement_travel_without_retraction))
     ((ConfigOptionBool,                 layer_refinement_chain_passes))
     ((ConfigOptionBool,                 layer_refinement_helical))
     ((ConfigOptionEnum<FuzzySkinType>,  fuzzy_skin))

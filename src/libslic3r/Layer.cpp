@@ -807,31 +807,10 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
         const Polygons core      = diff(behind, opening(diff(intersection(behind, zone_area), safe), float(tolerance / 2)));
 
         const Polygons shell = diff(all, core);
-        // A fine wall broken into short stretches starts and stops, with a retraction, a wipe and a seam each, more often
-        // than it gains: gaps of up to 2 mm between stretches are refined too, and stretches of less than 3 mm are not.
+        // Gaps of up to 2 mm between the stretches of a fine wall are refined too, so that a painted area broken into
+        // pieces does not start and stop the fine wall at each of them.
         zone_area     = closing(zone_area, float(scale_(1.)));
         Polygons zone = intersection(zone_area, shell);
-        if (ExPolygons stretches = union_ex(zone); ! stretches.empty()) {
-            const double min_area = double(ext_flow.scaled_width()) * scale_(3.);
-            const size_t num      = stretches.size();
-            // A small feature refined whole, as a pin, is not a stretch of a longer wall.
-            const auto whole_island = [this, &ext_flow](const ExPolygon &expoly) {
-                BoundingBox box = get_extents(expoly);
-                box.offset(ext_flow.scaled_width());
-                return std::any_of(lslices.begin(), lslices.end(), [&box](const ExPolygon &island) {
-                    const BoundingBox island_box = get_extents(island);
-                    return box.contains(island_box.min) && box.contains(island_box.max);
-                });
-            };
-            stretches.erase(std::remove_if(stretches.begin(), stretches.end(), [min_area, &whole_island](const ExPolygon &expoly) {
-                                return expoly.area() < min_area && ! whole_island(expoly);
-                            }),
-                            stretches.end());
-            if (stretches.size() != num) {
-                zone      = to_polygons(stretches);
-                zone_area = intersection(zone_area, offset(zone, float(2 * ext_flow.scaled_width())));
-            }
-        }
         if (zone.empty())
             continue;
         polygons_append(fine_zones, zone);

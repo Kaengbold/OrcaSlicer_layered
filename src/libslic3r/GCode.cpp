@@ -10869,6 +10869,10 @@ bool GCode::needs_retraction(const Polyline &travel, ExtrusionRole role, LiftTyp
         // skip retraction if the move is shorter than the configured threshold
         return false;
     }
+    // Orca: A short travel from a fine wall goes without a retraction: on its thin passes the restart after each
+    // retraction would show as a seam.
+    if (m_last_processor_extrusion_role == erFineWall && travel.length() < scale_(m_config.layer_refinement_travel_without_retraction.value))
+        return false;
 
     //BBS: input travel polyline must be in current plate coordinate system
     auto is_through_overhang = [this](const Polyline& travel) {
