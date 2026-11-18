@@ -106,9 +106,14 @@ public:
     // before the other extrusions of the layer. The top pass is printed at print_z and is a part of `perimeters`.
     struct RefinementPass
     {
-        // Top of the pass relative to print_z, negative.
+        // Top of the pass relative to print_z, negative. For a helix, the top of its lowest turn.
         double                      z_offset;
         ExtrusionEntityCollection   extrusions;
+        // Island of the layer (index into Layer::lslices) of each of the extrusions, -1 if none.
+        std::vector<int>            islands;
+        // A helix: the extrusions are its turns, printed in one go, each ending this far under print_z.
+        // Empty for a flat pass.
+        std::vector<double>         turn_offsets;
     };
     std::vector<RefinementPass> refinement_passes;
 

@@ -3043,6 +3043,10 @@ void TabPrint::build()
         optgroup->append_single_option_line("layer_refinement_height");
         optgroup->append_single_option_line("layer_refinement_scarf_length");
         optgroup->append_single_option_line("layer_refinement_joint_overlap");
+        optgroup->append_single_option_line("layer_refinement_min_step");
+        optgroup->append_single_option_line("layer_refinement_chain_passes");
+        optgroup->append_single_option_line("layer_refinement_helical");
+        optgroup->append_single_option_line("layer_refinement_acceleration");
         optgroup->append_single_option_line("enable_mixed_color_sublayer");
 
         optgroup = page->new_optgroup(L("Line width"), L"param_line_width");

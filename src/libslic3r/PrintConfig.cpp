@@ -4293,6 +4293,50 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0.3));
 
+    def = this->add("layer_refinement_min_step", coFloat);
+    def->label = L("Fine wall minimum step");
+    def->category = L("Quality");
+    def->tooltip = L("Refines only where a layer leaves a visible step on the surface: where the outlines of its passes lie at least "
+                     "this far apart, as on slopes and domes. Upright walls keep the normal layer height, which saves print time.
+
+"
+                     "Set to 0 to refine all walls.");
+    def->sidetext = L("mm");	// millimeters, CIS languages need translation
+    def->min = 0;
+    def->max = 5;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
+    def = this->add("layer_refinement_acceleration", coFloat);
+    def->label = L("Fine wall acceleration");
+    def->category = L("Speed");
+    def->tooltip = L("Acceleration of the passes of the fine wall. The passes are thin and carry little material, so they can often "
+                     "be printed with a higher acceleration than the outer wall.
+
+"
+                     "Set to 0 to use the acceleration of the walls they replace.");
+    def->sidetext = L(u8"mm/s²");	// millimeters per second per second, CIS languages need translation
+    def->min = 0;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
+    def = this->add("layer_refinement_chain_passes", coBool);
+    def->label = L("Chain fine wall passes");
+    def->category = L("Quality");
+    def->tooltip = L("Prints all passes under the layer of one island one after another, each starting at the seam where the "
+                     "previous one ended, without a Z hop between them. Saves the travels between islands for every pass.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
+    def = this->add("layer_refinement_helical", coBool);
+    def->label = L("Helical fine wall");
+    def->category = L("Quality");
+    def->tooltip = L("Prints the passes of a fine outer wall that is a single closed loop as one helix rising through the layer "
+                     "instead of separate loops, so that the passes have no seams. The helix starts and ends with a ramp of "
+                     "the flow to keep the top and bottom of the layer flat.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
     def = this->add("fuzzy_skin_thickness", coFloat);
     def->label = L("Fuzzy skin thickness");
     def->category = L("Others");

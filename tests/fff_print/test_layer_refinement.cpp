@@ -297,3 +297,121 @@ TEST_CASE("The passes are printed under the layer in the G-code", "[LayerRefinem
     config.set_deserialize_strict({{"layer_refinement_height", "0"}});
     CHECK_FALSE(moves_to_pass_height(Test::slice({Test::cube(20)}, config)));
 }
+
+TEST_CASE("A minimum step leaves upright walls at the layer height", "[LayerRefinement]")
+{
+    Print print;
+    slice(print, Test::cube(20), pass_height, {{"layer_refinement_min_step", "0.1"}});
+    for (const Layer *layer : print.objects().front()->layers())
+        CHECK(paths_of(*layer).under.empty());
+}
+
+TEST_CASE("A minimum step still refines a slope that steps further than it", "[LayerRefinement]")
+{
+    // The flat pyramid of the slope test: the outlines of the passes of a layer spread 0.75 mm apart.
+    Print print;
+    slice(print, TriangleMesh({ {10, 10, 2}, {0, 0, 0}, {20, 0, 0}, {20, 20, 0}, {0, 20, 0} },
+                              { {0, 1, 2}, {0, 3, 4}, {3, 1, 4}, {1, 3, 2}, {3, 0, 2}, {4, 1, 0} }),
+          pass_height, {{"layer_refinement_min_step", "0.1"}});
+    CHECK(count_paths(paths_of(middle_layer(print)).under, erExternalPerimeter, pass_height) >= size_t(pass_count - 1));
+}
+
+TEST_CASE("A helical fine wall prints the passes of a loop as one rising helix", "[LayerRefinement]")
+{
+    Print print;
+    slice(print, Test::cube(20), pass_height, {{"layer_refinement_helical", "1"}});
+    const Layer &layer = middle_layer(print);
+    size_t       helices = 0;
+    for (const LayerRegion *region : layer.regions())
+        for (const LayerRegion::RefinementPass &pass : region->refinement_passes) {
+            if (pass.turn_offsets.empty())
+                continue;
+            ++ helices;
+            // A flat turn, a turn per further pass and a flat closing turn, the last one at print_z.
+            REQUIRE(pass.turn_offsets.size() == size_t(pass_count + 1));
+            CHECK_THAT(pass.turn_offsets.front(), WithinAbs(- (pass_count - 1) * pass_height, 1e-6));
+            CHECK_THAT(pass.turn_offsets.back(), WithinAbs(0., 1e-6));
+            CHECK(dynamic_cast<const ExtrusionPathSloped*>(pass.extrusions.entities[1]) != nullptr);
+        }
+    CHECK(helices == 1);
+    // The helix ends at print_z, so no fine outer wall is left among the walls of the layer.
+    CHECK(count_paths(paths_of(layer).at_print_z, erExternalPerimeter, pass_height) == 0);
+}
+
+TEST_CASE("A helical fine wall extrudes the same volume", "[LayerRefinement]")
+{
+    Print coarse;
+    slice(coarse, Test::cube(20), 0.);
+    Print helical;
+    slice(helical, Test::cube(20), pass_height, {{"layer_refinement_helical", "1"}});
+    // The ramps of the first and the closing turn make up for the extra turn.
+    CHECK_THAT(volume_of(helical), WithinRel(volume_of(coarse), 0.02));
+}
+
+// The G-code of an object of two 10 mm cubes 10 mm apart, refined, with further settings.
+static std::string two_island_gcode(std::initializer_list<ConfigBase::SetDeserializeItem> more)
+{
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({
+        {"layer_height", std::to_string(layer_height)},
+        {"initial_layer_print_height", std::to_string(layer_height)},
+        {"wall_loops", "2"},
+        {"layer_refinement_height", std::to_string(pass_height)},
+    });
+    config.set_deserialize_strict(more);
+    TriangleMesh mesh = make_cube(10., 10., 10.);
+    TriangleMesh other = make_cube(10., 10., 10.);
+    other.translate(20.f, 0.f, 0.f);
+    mesh.merge(other);
+    return Test::slice({std::move(mesh)}, config);
+}
+
+// How often an extrusion is printed lower than the one before it.
+static size_t extrusion_z_drops(const std::string &gcode)
+{
+    std::istringstream lines(gcode);
+    double z = 0., last_z = 0.;
+    size_t drops = 0;
+    for (std::string line; std::getline(lines, line);) {
+        if (line.rfind("G1 ", 0) != 0 && line.rfind("G0 ", 0) != 0)
+            continue;
+        const std::string move = line.substr(0, line.find(';'));
+        if (const size_t pos = move.find(" Z"); pos != std::string::npos)
+            z = std::atof(move.c_str() + pos + 2);
+        const size_t e = move.find(" E");
+        if (e == std::string::npos || std::atof(move.c_str() + e + 2) <= 0. || move.find(" X") == std::string::npos)
+            continue;
+        if (z < last_z - 1e-4)
+            ++ drops;
+        last_z = z;
+    }
+    return drops;
+}
+
+TEST_CASE("Chained passes print the passes of one island before the next", "[LayerRefinement]")
+{
+    // The passes go up through the layer: printed pass by pass over both islands they never go down, island by
+    // island they go down once on each refined layer, to the lowest pass of the second island.
+    CHECK(extrusion_z_drops(two_island_gcode({{"layer_refinement_chain_passes", "0"}})) == 0);
+    CHECK(extrusion_z_drops(two_island_gcode({{"layer_refinement_chain_passes", "1"}})) > 0);
+}
+
+TEST_CASE("A fine wall acceleration is set for the passes", "[LayerRefinement]")
+{
+    const auto gcode_with = [](const char *acceleration) {
+        DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+        config.set_deserialize_strict({
+            {"layer_height", std::to_string(layer_height)},
+            {"initial_layer_print_height", std::to_string(layer_height)},
+            {"gcode_flavor", "marlin2"},
+            {"default_acceleration", "1000"},
+            {"outer_wall_acceleration", "1000"},
+            {"layer_refinement_height", std::to_string(pass_height)},
+            {"layer_refinement_acceleration", acceleration},
+        });
+        return Test::slice({Test::cube(20)}, config);
+    };
+    // Marlin 2 sets the print acceleration with M204 P. A value under the machine limits is not clamped.
+    CHECK(gcode_with("777").find("M204 P777") != std::string::npos);
+    CHECK(gcode_with("0").find("M204 P777") == std::string::npos);
+}

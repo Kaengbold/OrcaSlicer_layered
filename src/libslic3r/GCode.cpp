@@ -7729,22 +7729,54 @@ LayerResult GCode::process_layer(
                     m_object_layer_over_raft = object_layer_over_raft;
                 }
                 // Orca: The passes of the layer refinement are printed under the layer, so they go first, while nothing
-                // of this layer stands next to them, lowest pass first over all regions.
+                // of this layer stands next to them, lowest pass first over all regions. Chained passes follow, island
+                // by island, lowest first and without a lift between the passes of an island. A helix is printed in one go.
                 if (visit.first_visit && print_wipe_extrusions == (is_anything_overridden ? 1 : 0) &&
                     ! instance_to_print.object_by_extruder.refinement.empty()) {
-                    std::vector<std::pair<const LayerRegion*, const LayerRegion::RefinementPass*>> passes;
-                    for (const LayerRegion *layerm : instance_to_print.object_by_extruder.refinement)
+                    struct PassExtrusion
+                    {
+                        const LayerRegion                 *layerm;
+                        const LayerRegion::RefinementPass *pass;
+                        // Index of the extrusion in the pass, or all of them for a helix.
+                        size_t                             idx;
+                        // Island of a chained pass, -1 for the others.
+                        int                                chain;
+                    };
+                    std::vector<PassExtrusion> extrusions;
+                    for (const LayerRegion *layerm : instance_to_print.object_by_extruder.refinement) {
+                        const bool chained = layerm->region().config().layer_refinement_chain_passes.value;
                         for (const LayerRegion::RefinementPass &pass : layerm->refinement_passes)
-                            passes.emplace_back(layerm, &pass);
-                    std::stable_sort(passes.begin(), passes.end(), [](const auto &l, const auto &r) { return l.second->z_offset < r.second->z_offset; });
+                            for (size_t idx = 0; idx < (pass.turn_offsets.empty() ? pass.extrusions.entities.size() : 1); ++ idx) {
+                                const int island = idx < pass.islands.size() ? pass.islands[idx] : -1;
+                                extrusions.push_back({ layerm, &pass, pass.turn_offsets.empty() ? idx : size_t(-1), chained ? island : -1 });
+                            }
+                    }
+                    std::stable_sort(extrusions.begin(), extrusions.end(), [](const PassExtrusion &l, const PassExtrusion &r) {
+                        return l.chain < r.chain || (l.chain == r.chain && l.pass->z_offset < r.pass->z_offset);
+                    });
                     const coordf_t layer_nominal_z = m_nominal_z;
-                    for (const auto &[layerm, pass] : passes) {
-                        m_config.apply(print.get_print_region(layerm->region().print_region_id()).config());
-                        m_nominal_z                = layer_nominal_z + pass->z_offset;
-                        m_need_change_layer_lift_z = true;
-                        const std::vector<const ExtrusionEntity*> extrusions(pass->extrusions.entities.begin(), pass->extrusions.entities.end());
-                        for (const ExtrusionEntity *ee : extrusions)
-                            gcode += this->extrude_entity(*ee, "perimeter", -1., extrusions);
+                    const PassExtrusion *last = nullptr;
+                    for (const PassExtrusion &extrusion : extrusions) {
+                        // A pass that is not chained starts with a lift, as does each chain.
+                        const bool lift = last == nullptr || extrusion.chain != last->chain ||
+                            (extrusion.chain < 0 && (extrusion.pass != last->pass || extrusion.layerm != last->layerm));
+                        last = &extrusion;
+                        m_config.apply(print.get_print_region(extrusion.layerm->region().print_region_id()).config());
+                        const ExtrusionEntitiesPtr &entities = extrusion.pass->extrusions.entities;
+                        const std::vector<const ExtrusionEntity*> region_extrusions(entities.begin(), entities.end());
+                        if (extrusion.pass->turn_offsets.empty()) {
+                            m_nominal_z = layer_nominal_z + extrusion.pass->z_offset;
+                            if (lift)
+                                m_need_change_layer_lift_z = true;
+                            gcode += this->extrude_entity(*entities[extrusion.idx], "perimeter", -1., region_extrusions);
+                        } else {
+                            for (size_t turn = 0; turn < entities.size(); ++ turn) {
+                                m_nominal_z = layer_nominal_z + extrusion.pass->turn_offsets[turn];
+                                if (turn == 0 && lift)
+                                    m_need_change_layer_lift_z = true;
+                                gcode += this->extrude_entity(*entities[turn], "perimeter", -1., region_extrusions);
+                            }
+                        }
                     }
                     m_nominal_z                = layer_nominal_z;
                     m_need_change_layer_lift_z = true;
@@ -9483,6 +9515,11 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
             acceleration = sparse_infill_acceleration;
         } else if (internal_solid_infill_acceleration > 0) {
             acceleration = internal_solid_infill_acceleration;
+        } else if (m_config.layer_refinement_acceleration.value > 0 && m_config.layer_refinement_height.value > 0 && m_layer != nullptr &&
+                   (role == erExternalPerimeter || role == erPerimeter) && path.height < m_layer->height - EPSILON) {
+            // Orca: A wall thinner than the layer in a refined region is a pass of the fine wall, or the wall of the layer
+            // thinned over a scarf joint.
+            acceleration = m_config.layer_refinement_acceleration.value;
         } else if (m_config.outer_wall_acceleration.get_at(nozzle) > 0 && is_external_perimeter(role)) {
             acceleration = m_config.outer_wall_acceleration.get_at(nozzle);
         } else if (m_config.inner_wall_acceleration.get_at(nozzle) > 0 && is_internal_perimeter(role)) {

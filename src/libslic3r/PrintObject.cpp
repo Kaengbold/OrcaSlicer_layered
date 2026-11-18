@@ -1851,6 +1851,8 @@ bool PrintObject::invalidate_state_by_config_options(
             || opt_key == "layer_refinement_height"
             || opt_key == "layer_refinement_scarf_length"
             || opt_key == "layer_refinement_joint_overlap"
+            || opt_key == "layer_refinement_min_step"
+            || opt_key == "layer_refinement_helical"
             || opt_key == "fuzzy_skin"
             || opt_key == "fuzzy_skin_thickness"
             || opt_key == "fuzzy_skin_point_distance"

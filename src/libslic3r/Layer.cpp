@@ -25,6 +25,7 @@
 #include <utility>
 #include <cassert>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <memory>
 #include <numeric>
@@ -622,6 +623,87 @@ static void scale_outer_wall_flow_over(ExtrusionEntityCollection &collection, co
     }
 }
 
+// Orca: Index of the island of `islands` that holds `point`, or else the closest one, -1 if there are none.
+static int island_of(const ExPolygons &islands, const Point &point)
+{
+    int    closest     = -1;
+    double closest_sqr = std::numeric_limits<double>::max();
+    for (size_t idx = 0; idx < islands.size(); ++ idx) {
+        if (islands[idx].contains(point))
+            return int(idx);
+        if (const Point *nearest = islands[idx].contour.closest_point(point); nearest != nullptr)
+            if (const double sqr = (*nearest - point).cast<double>().squaredNorm(); sqr < closest_sqr) {
+                closest     = int(idx);
+                closest_sqr = sqr;
+            }
+    }
+    return closest;
+}
+
+using RefinementIslands = std::vector<std::vector<std::pair<int, std::unique_ptr<ExtrusionEntityCollection>>>>;
+
+// Orca: Takes the islands whose passes are each one closed outer wall out of `pass_islands` (lines of each pass by
+// island, lowest pass first) and appends them to `out` as helices rising from the lowest pass to print_z: a flat turn
+// on the layer below, a turn that ramps the flow up as it rises off it, a turn for each further pass, and a flat
+// turn at print_z that ramps the flow down, so that the bottom and the top of the layer stay flat. Each turn follows
+// the outline of its pass, opened at the point closest to the back of the top one.
+static void make_refinement_helices(RefinementIslands &pass_islands, double pass_height, std::vector<LayerRegion::RefinementPass> &out)
+{
+    const int  count       = int(pass_islands.size());
+    const auto single_loop = [](const ExtrusionEntityCollection &extrusions) -> const ExtrusionLoop* {
+        if (extrusions.entities.size() != 1)
+            return nullptr;
+        const auto *loop = dynamic_cast<const ExtrusionLoop*>(extrusions.entities.front());
+        return loop != nullptr && loop->paths.size() == 1 && loop->role() == erExternalPerimeter ? loop : nullptr;
+    };
+    for (const auto &[island, top] : pass_islands.back()) {
+        if (island < 0)
+            continue;
+        // The lines of this island in each pass, if they are one loop in each.
+        std::vector<std::unique_ptr<ExtrusionEntityCollection>*> stack;
+        for (auto &pass : pass_islands) {
+            std::unique_ptr<ExtrusionEntityCollection> *found = nullptr;
+            size_t                                      num   = 0;
+            for (auto &[other, extrusions] : pass)
+                if (other == island && extrusions) {
+                    found = &extrusions;
+                    ++ num;
+                }
+            if (num != 1 || single_loop(**found) == nullptr)
+                break;
+            stack.emplace_back(found);
+        }
+        if (int(stack.size()) != count)
+            continue;
+
+        const Polygon top_polygon = single_loop(**stack.back())->polygon();
+        const Point   seam        = *std::max_element(top_polygon.points.begin(), top_polygon.points.end(),
+            [](const Point &l, const Point &r) { return l.y() < r.y() || (l.y() == r.y() && l.x() > r.x()); });
+        LayerRegion::RefinementPass helix { - (count - 1) * pass_height };
+        for (int turn = 0; turn <= count; ++ turn) {
+            const int            pass    = std::min(turn, count - 1);
+            const ExtrusionLoop &loop    = *single_loop(**stack[pass]);
+            const Polygon        polygon = loop.polygon();
+            Polyline3            line(polygon.split_at_index(polygon.closest_point_index(seam)));
+            const ExtrusionPath &templ   = loop.paths.front();
+            ExtrusionPath       *path    = nullptr;
+            if (turn == 0)
+                path = new ExtrusionPath(std::move(line), templ);
+            else if (turn < count)
+                path = new ExtrusionPathSloped(std::move(line), templ, { 0., turn == 1 ? 0. : 1. }, { 1., 1. });
+            else
+                path = new ExtrusionPathSloped(std::move(line), templ, { 1., 1. }, { 1., 0. });
+            path->inset_idx = 0;
+            helix.extrusions.entities.emplace_back(path);
+            helix.turn_offsets.emplace_back(- (count - 1 - pass) * pass_height);
+        }
+        helix.islands.assign(helix.extrusions.entities.size(), island);
+        for (std::unique_ptr<ExtrusionEntityCollection> *extrusions : stack)
+            extrusions->reset();
+        out.emplace_back(std::move(helix));
+    }
+}
+
 // The outer surface of a refined region is printed in `count` passes, each a 1/count of the layer high and following
 // the outline of the object at its own height. Behind them the layer is printed as it is, at its full height.
 //
@@ -688,8 +770,8 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
 
         const ExPolygons area = union_ex(group.area);
         // The outlines of the passes on a slope lie past the outline of the layer: grow the area outwards only.
-        const float    reach     = float(std::max(ext_flow.scaled_width(), coord_t(scale_(3. * height))));
-        const Polygons zone_area = diff(offset(area, reach), diff(outline, to_polygons(area)));
+        const float reach     = float(std::max(ext_flow.scaled_width(), coord_t(scale_(3. * height))));
+        Polygons    zone_area = diff(offset(area, reach), diff(outline, to_polygons(area)));
 
         // What all the passes cover, and what any of them covers.
         Polygons common = to_polygons(pass_slices.front());
@@ -700,6 +782,19 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
             polygons_append(all, slices);
         }
         all = union_(all);
+
+        // With a minimum step, only where the outlines of the passes spread apart by it, as on a slope, is refined,
+        // through the depth of the walls. Gaps shorter than a millimetre between such stretches are refined too, so
+        // that the joints do not pile up on a curved outline.
+        bool restricted = false;
+        if (const double min_step = config.layer_refinement_min_step.value; min_step > 0.) {
+            const Polygons steps = opening(intersection(diff(all, common), zone_area), float(scale_(min_step) / 2.));
+            if (steps.empty())
+                continue;
+            const float depth = float(reach + wall_depth + wall_loops * wall_step);
+            zone_area  = intersection(zone_area, closing(offset(steps, depth), float(scale_(1.))));
+            restricted = true;
+        }
 
         // The core starts behind the first wall of the layer that leaves every pass room for its outer wall,
         // allowing the outlines a quarter of a wall of deviation. Without such a wall, the passes replace them all.
@@ -725,7 +820,7 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
         // Where the fine wall ends on a wall carrying on at the layer height, the passes run on into that wall by the
         // joint overlap, to fill the gap left by its rounded end. A scarf runs the lower passes further, a step per pass,
         // and prints the wall of the layer over each step as thin as the passes under it leave room for.
-        const double scarf_step = unrefined.empty() ? 0. : config.layer_refinement_scarf_length.value / (count - 1);
+        const double scarf_step = unrefined.empty() && ! restricted ? 0. : config.layer_refinement_scarf_length.value / (count - 1);
         const auto   run_on     = [&config, &scarf_step](int steps) {
             return float(scale_(config.layer_refinement_joint_overlap.value + steps * scarf_step));
         };
@@ -739,10 +834,10 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
         ExtrusionPath templ(erPerimeter, fine_flow.mm3_per_mm(), fine_flow.width(), fine_flow.height());
         ext_templ.inset_idx = 0;
         templ.inset_idx     = 0;
+        // The lines of each pass by island of the layer.
+        RefinementIslands pass_islands(count);
         for (int pass = 0; pass < count; ++ pass) {
-            const bool                top       = pass + 1 == count;
-            const ExPolygons          pass_zone = intersection_ex(offset(zone_area, run_on(count - 1 - pass)), shell);
-            ExtrusionEntityCollection pass_extrusions;
+            const ExPolygons pass_zone = intersection_ex(offset(zone_area, run_on(count - 1 - pass)), shell);
             for (const ExPolygon &island : pass_slices[pass]) {
                 // Concentric lines from the outline of the pass inwards, as far as the zone reaches.
                 auto    extrusions = std::make_unique<ExtrusionEntityCollection>();
@@ -755,15 +850,26 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
                         break;
                     distance += outer ? (fine_ext_flow.scaled_spacing() + fine_flow.scaled_spacing()) / 2 : fine_flow.scaled_spacing();
                 }
-                if (extrusions->entities.empty())
-                    continue;
-                if (top)
-                    top_passes.emplace_back(&layerm, std::move(extrusions));
-                else
-                    pass_extrusions.append(std::move(extrusions->entities));
+                if (! extrusions->entities.empty())
+                    pass_islands[pass].emplace_back(island_of(lslices, island.contour.points.front()), std::move(extrusions));
             }
-            if (! pass_extrusions.entities.empty())
-                layerm.refinement_passes.push_back({ - (count - 1 - pass) * pass_height, std::move(pass_extrusions) });
+        }
+        if (config.layer_refinement_helical.value)
+            make_refinement_helices(pass_islands, pass_height, layerm.refinement_passes);
+        for (int pass = 0; pass < count; ++ pass) {
+            LayerRegion::RefinementPass refinement_pass { - (count - 1 - pass) * pass_height };
+            for (auto &[island, extrusions] : pass_islands[pass]) {
+                if (! extrusions)
+                    continue;
+                if (pass + 1 == count) {
+                    top_passes.emplace_back(&layerm, std::move(extrusions));
+                    continue;
+                }
+                refinement_pass.islands.insert(refinement_pass.islands.end(), extrusions->entities.size(), island);
+                refinement_pass.extrusions.append(std::move(extrusions->entities));
+            }
+            if (! refinement_pass.extrusions.entities.empty())
+                layerm.refinement_passes.emplace_back(std::move(refinement_pass));
         }
     }
     if (fine_zones.empty())

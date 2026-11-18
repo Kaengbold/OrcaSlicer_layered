@@ -202,7 +202,11 @@ std::map<std::string, std::vector<SimpleSettingData>> SettingsFactory::PART_CATE
        {"internal_bridge_speed", "", 13},
        {"layer_refinement_height", "", 14},
        {"layer_refinement_scarf_length", "", 15},
-       {"layer_refinement_joint_overlap", "", 16}}}};
+       {"layer_refinement_joint_overlap", "", 16},
+       {"layer_refinement_min_step", "", 17},
+       {"layer_refinement_acceleration", "", 18},
+       {"layer_refinement_chain_passes", "", 19},
+       {"layer_refinement_helical", "", 20}}}};
 
 std::vector<std::string> SettingsFactory::get_options(const bool is_part)
 {

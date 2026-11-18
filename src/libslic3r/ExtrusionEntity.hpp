@@ -381,6 +381,9 @@ public:
     }
 
     bool is_flat() const { return is_approx(slope_begin.z_ratio, slope_end.z_ratio); }
+
+    ExtrusionEntity* clone() const override { return new ExtrusionPathSloped(*this); }
+    ExtrusionEntity* clone_move() override { return new ExtrusionPathSloped(std::move(*this)); }
 };
 
 class ExtrusionPathOriented : public ExtrusionPath

@@ -58,6 +58,14 @@ of a wall width of tolerance. This one rule covers the cases:
 Because the core lies inside every pass outline, no thick line of the layer can
 stick out of the fine surface.
 
+With `layer_refinement_min_step` above 0, a layer is refined only where it
+leaves a visible step: where the outlines of its passes lie at least that far
+apart, as on slopes and domes, through the depth of the walls there. Gaps of
+less than a millimetre between such stretches are refined too, so that joints
+do not pile up on a curved outline. Upright walls keep the layer height, which
+saves the time of printing their outer wall several times for no visible gain.
+The ends of a refined stretch are ordinary joints.
+
 A line of a pass takes the place of a wall of the layer: it is as wide as that
 wall's spacing plus the mean overlap of a thin and a thick line, which keeps the
 outer face on the outline and the inner face against the first wall of the core.
@@ -82,6 +90,18 @@ one lie under it and it keeps one pass height, over the last step only the
 lowest pass does. The extruded volume stays that of the unrefined wall, and the
 joint is spread over the scarf length instead of one vertical face.
 
+### Helices
+
+With `layer_refinement_helical`, the passes of an island whose fine wall is a
+single closed outer loop in every pass are printed as one helix instead of
+separate loops: a flat turn on the layer below, a turn that ramps the flow up as
+it rises off it, one turn for each further pass, and a flat turn at `print_z`
+that ramps the flow down. The bottom and the top of the layer stay flat and the
+volume is that of the passes, but the passes have no seams. Each turn follows
+the outline of its pass, opened at the point closest to the back of the top one.
+The helix is one more loop of travel than the passes, so it is about quality,
+not time. Islands with wider fine zones or joints keep flat passes.
+
 ## Data
 
 `LayerRegion::refinement_passes` holds the passes below the top one, lowest
@@ -91,7 +111,9 @@ the seam placer plans its seams on the fine outer wall and the lower passes,
 looked up by position, get the same seam.
 
 All lines of a pass carry wall index 0, so all of them are printed with the
-outer wall filament.
+outer wall filament. Each line records the island of the layer it belongs to.
+A helix is stored as a pass whose extrusions are its turns, each with its own
+offset under `print_z`; its top turn replaces the top pass of that island.
 
 ## G-code
 
@@ -101,6 +123,18 @@ over all regions, by lowering the nominal Z the way the mixed-colour sub-layers
 do, and then prints the layer as usual. Nothing of the layer stands next to a
 pass when it is printed, and the fine walls already stand at `print_z` when the
 thick ones are printed beside them.
+
+With `layer_refinement_chain_passes`, the passes of the regions with the option
+are printed after the others, island by island, all passes of one island lowest
+first before the next island.
+Only the first pass of an island starts with a lift; the next pass starts at the
+seam where the last one ended. This saves the travels between the islands for
+every pass. The nozzle goes down once per island, onto an island where nothing of
+the layer is printed yet.
+
+A wall thinner than the layer in a refined region, which is a pass or the wall
+of the layer thinned over a scarf, is printed with
+`layer_refinement_acceleration` when it is set.
 
 Consequences:
 
