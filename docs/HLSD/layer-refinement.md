@@ -205,5 +205,8 @@ view shows where the passes went.
   wall filament may lay thick walls next to where the lower passes follow.
 - A fine zone that is not a whole number of lines deep leaves up to half a line
   of gap or overlap at the core.
-- A flat top between two layers is filled with concentric lines.
+- A flat top or bottom inside a layer, where the outline of one pass lies more
+  than 2 mm past that of the next, is left to the top or bottom infill of the
+  layer: only the outer wall along it is refined, so that surface keeps the
+  layer height.
 - The outlines of the passes are not changed by "make overhangs printable".

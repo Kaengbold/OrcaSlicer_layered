@@ -9956,8 +9956,14 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
                                                                               ref_speed, speed, NOZZLE_CONFIG(slowdown_for_curled_perimeters),
                                                                               fan_overlap_threshold);
             }
-            if (fine_wall)
+            if (fine_wall) {
                 transfer_processed_points(new_points, fine_wall_on_outline.polyline, path.polyline);
+                // The passes of a layer are all judged on the same wall line, but the rounding of their positions tips
+                // an overlap right at the fan threshold either way, as on a 45 degree overhang with lines twice as wide as
+                // the layer: rounded to a percent, they all decide alike.
+                for (ProcessedPoint &point : new_points)
+                    point.overlap = std::round(point.overlap * 100.f) / 100.f;
+            }
             if (!NOZZLE_CONFIG(enable_overhang_speed))
                 for (ProcessedPoint &point : new_points)
                     point.speed = speed;

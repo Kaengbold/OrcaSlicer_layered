@@ -796,6 +796,21 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
             restricted = true;
         }
 
+        // A flat top or bottom inside the layer, where the outline of one pass lies far past that of the next, is a
+        // surface of the layer for its top or bottom infill, not a step of the wall: the passes leave it, except for the
+        // outer wall of the layer along it.
+        {
+            Polygons flats;
+            for (size_t pass = 0; pass + 1 < pass_slices.size(); ++ pass) {
+                const Polygons lower = to_polygons(pass_slices[pass]);
+                const Polygons upper = to_polygons(pass_slices[pass + 1]);
+                polygons_append(flats, opening(diff(lower, upper), float(scale_(1.))));
+                polygons_append(flats, opening(diff(upper, lower), float(scale_(1.))));
+            }
+            if (! flats.empty())
+                zone_area = diff(zone_area, diff(union_(flats), diff(union_(all, outline), offset(outline, - float(wall_depth)))));
+        }
+
         // The core starts behind the outer wall of the layer, so that its inner walls stay at the layer height. Only
         // where the outer wall of a pass would run over an inner wall, as where the outline moves inwards, is that
         // stretch cut out of the core, allowing the outlines a quarter of a wall of deviation. A feature too thin for
