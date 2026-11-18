@@ -4297,9 +4297,7 @@ void PrintConfigDef::init_fff_params()
     def->label = L("Fine wall minimum step");
     def->category = L("Quality");
     def->tooltip = L("Refines only where a layer leaves a visible step on the surface: where the outlines of its passes lie at least "
-                     "this far apart, as on slopes and domes. Upright walls keep the normal layer height, which saves print time.
-
-"
+                     "this far apart, as on slopes and domes. Upright walls keep the normal layer height, which saves print time.\n\n"
                      "Set to 0 to refine all walls.");
     def->sidetext = L("mm");	// millimeters, CIS languages need translation
     def->min = 0;
@@ -4311,9 +4309,7 @@ void PrintConfigDef::init_fff_params()
     def->label = L("Fine wall acceleration");
     def->category = L("Speed");
     def->tooltip = L("Acceleration of the passes of the fine wall. The passes are thin and carry little material, so they can often "
-                     "be printed with a higher acceleration than the outer wall.
-
-"
+                     "be printed with a higher acceleration than the outer wall.\n\n"
                      "Set to 0 to use the acceleration of the walls they replace.");
     def->sidetext = L(u8"mm/s²");	// millimeters per second per second, CIS languages need translation
     def->min = 0;
