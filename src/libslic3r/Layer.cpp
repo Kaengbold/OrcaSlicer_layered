@@ -899,11 +899,14 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
             scale_outer_wall_flow_over(layerm->perimeters, band, share);
         remove_extrusions_over(layerm->perimeters, fine_zones);
         remove_extrusions_over(layerm->thin_fills, fine_zones);
-        layerm->fill_expolygons            = diff_ex(layerm->fill_expolygons, fine_zones);
-        layerm->fill_no_overlap_expolygons = diff_ex(layerm->fill_no_overlap_expolygons, fine_zones);
+        // Cutting the fine zones out of the fill areas may leave slivers, on which the gap fill of the infill, built on a
+        // Voronoi diagram, fails: they are too thin to fill anyway.
+        const float sliver = float(scale_(0.02));
+        layerm->fill_expolygons            = opening_ex(diff_ex(layerm->fill_expolygons, fine_zones), sliver);
+        layerm->fill_no_overlap_expolygons = opening_ex(diff_ex(layerm->fill_no_overlap_expolygons, fine_zones), sliver);
         if (! layerm->fill_surfaces.surfaces.empty()) {
             const Surface templ = layerm->fill_surfaces.surfaces.front();
-            layerm->fill_surfaces.set(diff_ex(to_expolygons(layerm->fill_surfaces.surfaces), fine_zones), templ);
+            layerm->fill_surfaces.set(opening_ex(diff_ex(to_expolygons(layerm->fill_surfaces.surfaces), fine_zones), sliver), templ);
         }
     }
     for (auto &[layerm, extrusions] : top_passes)

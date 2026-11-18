@@ -629,7 +629,11 @@ void PrintObject::make_perimeters()
         [this](const tbb::blocked_range<size_t>& range) {
             for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++ layer_idx) {
                 m_print->throw_if_canceled();
-                m_layers[layer_idx]->make_perimeters();
+                try {
+                    m_layers[layer_idx]->make_perimeters();
+                } catch (const Slic3r::LogicError &ex) {
+                    throw_layer_error(_u8L("Generating walls"), *m_layers[layer_idx], ex);
+                }
             }
         }
     );
@@ -639,6 +643,12 @@ void PrintObject::make_perimeters()
     this->apply_layer_refinement();
 
     this->set_done(posPerimeters);
+}
+
+// Orca: Names the step and the layer on which the geometry code failed, which its own message does not tell.
+[[noreturn]] static void throw_layer_error(const std::string &step, const Layer &layer, const std::exception &ex)
+{
+    throw Slic3r::SlicingError(format(_u8L("%1% failed on the layer at %2% mm: %3%"), step, layer.print_z, ex.what()));
 }
 
 // Orca: Slices the object between its layers where a region has a fine wall layer height and lets these layers
@@ -694,7 +704,11 @@ void PrintObject::apply_layer_refinement()
             for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++ layer_idx) {
                 m_print->throw_if_canceled();
                 if (! sub_slices[layer_idx].empty())
-                    m_layers[layer_idx]->apply_refinement(sub_slices[layer_idx]);
+                    try {
+                        m_layers[layer_idx]->apply_refinement(sub_slices[layer_idx]);
+                    } catch (const Slic3r::LogicError &ex) {
+                        throw_layer_error(_u8L("Generating fine walls"), *m_layers[layer_idx], ex);
+                    }
             }
         }
     );
@@ -904,7 +918,11 @@ void PrintObject::infill()
             [this](const tbb::blocked_range<size_t>& range) {
                 for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++ layer_idx) {
                     m_print->throw_if_canceled();
-                    m_layers[layer_idx]->make_fills(&m_adaptive_fill_octrees, this->m_lightning_generator.get());
+                    try {
+                        m_layers[layer_idx]->make_fills(&m_adaptive_fill_octrees, this->m_lightning_generator.get());
+                    } catch (const Slic3r::LogicError &ex) {
+                        throw_layer_error(_u8L("Generating infill"), *m_layers[layer_idx], ex);
+                    }
                 }
             }
         );
