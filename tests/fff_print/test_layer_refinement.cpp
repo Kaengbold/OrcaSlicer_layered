@@ -224,9 +224,10 @@ TEST_CASE("A slope is refined over more than its outer wall", "[LayerRefinement]
 }
 
 // Slices a 20 mm cube with 2 walls at 0.2 mm, with a modifier over its side at x = 0 only that sets the fine wall
-// layer height, if any, and the scarf length, with further settings for the whole print.
+// layer height, if any, the scarf length and further settings of its own, with further settings for the whole print.
 static void slice_one_side_refined(Print &print, double refinement_height, double scarf_length,
-                                   std::initializer_list<ConfigBase::SetDeserializeItem> more = {})
+                                   std::initializer_list<ConfigBase::SetDeserializeItem>   more          = {},
+                                   std::initializer_list<std::pair<const char *, double>>   modifier_more = {})
 {
     DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
     config.set_deserialize_strict({
@@ -245,6 +246,8 @@ static void slice_one_side_refined(Print &print, double refinement_height, doubl
     ModelVolume *modifier = object->add_volume(std::move(modifier_mesh), ModelVolumeType::PARAMETER_MODIFIER);
     modifier->config.set("layer_refinement_height", refinement_height);
     modifier->config.set("layer_refinement_scarf_length", scarf_length);
+    for (const auto &[key, value] : modifier_more)
+        modifier->config.set(key, value);
     object->add_instance()->set_offset(Vec3d(100., 100., 0.));
     object->ensure_on_bed();
     print.apply(model, config);
@@ -572,6 +575,8 @@ TEST_CASE("All passes of a layer get the same speed on an overhang", "[LayerRefi
         {"wall_loops", "2"},
         {"enable_overhang_speed", "1"},
         {"slow_down_for_layer_cooling", "0"},
+        // Too steep to change a speed: the extrusion rate smoothing is on in a print with fine walls.
+        {"max_volumetric_extrusion_rate_slope", "1000000"},
         {"layer_refinement_height", std::to_string(pass_height)},
         {"layer_refinement_helical", helical},
     });
@@ -734,6 +739,7 @@ TEST_CASE("The joint speed sets how the speed follows the ramp of a scarf joint"
                             {"filament_max_volumetric_speed", "100"},
                             {"slow_down_for_layer_cooling", "0"},
                             {"enable_overhang_speed", "0"},
+                            {"max_volumetric_extrusion_rate_slope", "1000000"},
                             {"layer_refinement_joint_speed", mode}});
     const std::string  gcode = Test::gcode(print);
     std::istringstream lines(gcode);
@@ -764,4 +770,66 @@ TEST_CASE("The joint speed sets how the speed follows the ramp of a scarf joint"
         }
     }
     CHECK(ramp_moves > 0);
+}
+
+TEST_CASE("All fine walls of a layer take the fine wall speed of the refined region", "[LayerRefinement]")
+{
+    // The print sets 60 mm/s and the modifier 20 mm/s. The top pass spliced into the wall of the print and the wall of
+    // the layer over the ramp belong to the region of the print, but are printed at 20 mm/s as the passes are. A slope
+    // of the extrusion rate smoothing this steep never changes a speed.
+    Print print;
+    slice_one_side_refined(print, pass_height, 3.,
+                           {{"layer_refinement_speed", "60"},
+                            {"outer_wall_speed", "100"},
+                            {"filament_max_volumetric_speed", "100"},
+                            {"slow_down_for_layer_cooling", "0"},
+                            {"enable_overhang_speed", "0"},
+                            {"max_volumetric_extrusion_rate_slope", "1000000"}},
+                           {{"layer_refinement_speed", 20.}});
+    const std::string  gcode = Test::gcode(print);
+    std::istringstream lines(gcode);
+    std::string        role;
+    double             height = 0., feedrate = 0.;
+    size_t             fine_moves = 0, ramp_moves = 0;
+    for (std::string line; std::getline(lines, line);) {
+        if (line.rfind(";TYPE:", 0) == 0)
+            role = line.substr(6);
+        else if (line.rfind(";HEIGHT:", 0) == 0)
+            height = std::atof(line.c_str() + 8);
+        else if (line.rfind("G1 ", 0) == 0) {
+            const std::string move = line.substr(0, line.find(';'));
+            if (const size_t pos = move.find(" F"); pos != std::string::npos)
+                feedrate = std::atof(move.c_str() + pos + 2);
+            const size_t e = move.find(" E");
+            if (role != "Fine wall" || e == std::string::npos || std::atof(move.c_str() + e + 2) <= 0. ||
+                move.find(" X") == std::string::npos)
+                continue;
+            ++ fine_moves;
+            if (height > pass_height + 1e-3)
+                ++ ramp_moves;
+            CHECK_THAT(feedrate / 60., WithinRel(20., 0.01));
+        }
+    }
+    CHECK(fine_moves > 0);
+    CHECK(ramp_moves > 0);
+}
+
+TEST_CASE("A print with fine walls is smoothed where the extrusion rate smoothing is not set", "[LayerRefinement]")
+{
+    // The flow of the wall of the layer jumps from that of the ramp to its own at the end of a scarf joint, which a
+    // smoothing of 300 mm³/s² slows down and one too steep to matter does not. The G-code is compared without the lines
+    // that print the setting.
+    const auto smoothed_gcode = [](const char *slope) {
+        Print print;
+        slice_one_side_refined(print, pass_height, 3., {{"max_volumetric_extrusion_rate_slope", slope}});
+        std::istringstream lines(Test::gcode(print));
+        std::string        gcode;
+        for (std::string line; std::getline(lines, line);)
+            if (line.find("max_volumetric_extrusion_rate_slope") == std::string::npos)
+                gcode += line + "\n";
+        return gcode;
+    };
+    const std::string unset = smoothed_gcode("0");
+    CHECK(unset == smoothed_gcode("300"));
+    CHECK(unset != smoothed_gcode("1000000"));
 }

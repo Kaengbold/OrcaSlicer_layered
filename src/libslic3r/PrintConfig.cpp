@@ -5804,7 +5804,7 @@ void PrintConfigDef::init_fff_params()
                      "extrusion to a lower flow (lower speed/smaller width) extrusion and vice versa.\n\n"
                      "It defines the maximum rate by which the extruded volumetric flow in mm³/s can change over time. "
                      "Higher values mean higher extrusion rate changes are allowed, resulting in faster speed transitions.\n\n" 
-                     "A value of 0 disables the feature.\n\n"
+                     "A value of 0 disables the feature, except in a print with fine walls, which is smoothed at 300 mm³/s².\n\n"
                      "For a high speed, high flow direct drive printer (like the Bambu lab or Voron) this value is usually not needed. "
                      "However it can provide some marginal benefit in certain cases where feature speeds vary greatly. For example, "
                      "when there are aggressive slowdowns due to overhangs. In these cases a high value of around 300-350 mm³/s² is "

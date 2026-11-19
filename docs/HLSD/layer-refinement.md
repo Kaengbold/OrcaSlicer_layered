@@ -111,7 +111,12 @@ scarf of the prototype (`scripts/layer_combination_coupons.py`):
   from one to the other, so that the flow rises smoothly; *constant flow*
   prints it with the flow of the outer wall, faster the thinner it is, up to
   the maximum speed of the machine, so that the flow does not change at the
-  joint.
+  joint. The outer wall speed here is the one the wall prints at, within the
+  maximum volumetric speed of the filament.
+- The flow still changes over every joint, so a print with fine walls is
+  smoothed at 300 mm³/s² where `max_volumetric_extrusion_rate_slope` is 0, and
+  is then printed without arcs, as the smoothing reads straight moves only.
+  Calibration prints, which turn the smoothing off, are left alone.
 
 ### Helices
 
@@ -181,7 +186,8 @@ A wall thinner than a refined layer, which is a pass or the wall of the layer
 thinned over a scarf, is printed as a fine wall whatever region it belongs to: the
 top pass is spliced into the wall of the region it meets, which is not refined
 itself. It is printed with `layer_refinement_speed` and
-`layer_refinement_acceleration`, unless they overhang. A fine wall gets the
+`layer_refinement_acceleration` of the refined region of the layer, whatever
+region it belongs to, unless they overhang. A fine wall gets the
 overhang speed and fan of the wall of the layer it replaces: each of its points is
 measured from the nearest point of the outline of its layer against the layer below
 (`FineWallBoundaries`), and judged with the width of the outer wall of the layer
