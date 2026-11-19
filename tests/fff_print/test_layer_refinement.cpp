@@ -14,6 +14,7 @@
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/libslic3r.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -558,8 +559,9 @@ TEST_CASE("A refined layer keeps its top surfaces ironed", "[LayerRefinement]")
 TEST_CASE("All passes of a layer get the same speed on an overhang", "[LayerRefinement]")
 {
     // A 20 mm box leaning out by 2 mm per mm on one side, refined whole, with overhang speeds and no slowdown for the
-    // layer time. Every pass, and every turn of a helix, is judged as the wall of the layer it replaces, so the passes
-    // of a layer print each side of the box at the same speeds.
+    // layer time. Every line of a pass, and every turn of a helix, is judged as the wall of the layer it replaces,
+    // whatever its own width, so the passes of a layer print the upright and the leaning side of the box at the same
+    // speeds. Only the corners differ: there the higher passes of the leaning side reach further out than the lower ones.
     const std::string helical = GENERATE("0", "1");
     DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
     config.set_deserialize_strict({
@@ -575,8 +577,14 @@ TEST_CASE("All passes of a layer get the same speed on an overhang", "[LayerRefi
                                                         { {0, 2, 1}, {0, 3, 2}, {4, 5, 6}, {4, 6, 7}, {0, 1, 5}, {0, 5, 4}, {1, 2, 6}, {1, 6, 5},
                                                           {2, 3, 7}, {2, 7, 6}, {3, 0, 4}, {3, 4, 7} })},
                                           config);
-    // Layer and side of the box, by the direction of the move -> height of the pass or turn -> the speeds it prints at.
-    std::map<std::pair<std::string, std::pair<int, int>>, std::map<std::string, std::set<long>>> speeds;
+    // The extrusions of the fine walls along the sides: layer, height of the pass or turn, x, y from and to, speed.
+    struct Move
+    {
+        std::string layer, z;
+        double      x, from_y, to_y;
+        long        feedrate;
+    };
+    std::vector<Move>  moves;
     std::istringstream lines(gcode);
     std::string        layer, z, role;
     long               feedrate = 0;
@@ -601,14 +609,23 @@ TEST_CASE("All passes of a layer get the same speed on an overhang", "[LayerRefi
             value(move, " X", x);
             value(move, " Y", y);
             value(move, " E", e);
-            // The short moves joining the stretches of a pass belong to no side.
-            if (role == "Fine wall" && e > 0. && std::hypot(x - from_x, y - from_y) > 1.) {
-                const std::pair<int, int> side(int(std::lround((x - from_x) / std::hypot(x - from_x, y - from_y))),
-                                               int(std::lround((y - from_y) / std::hypot(x - from_x, y - from_y))));
-                speeds[{layer, side}][z].insert(feedrate);
-            }
+            if (role == "Fine wall" && e > 0. && std::abs(x - from_x) < 0.1 && std::abs(y - from_y) > 0.1)
+                moves.push_back({layer, z, x, from_y, y, feedrate});
         }
     }
+    REQUIRE(! moves.empty());
+    // The box is 20 mm deep wherever it is placed: compare the stretch of the sides 2 mm or more from the corners.
+    double min_x = moves.front().x, max_x = min_x, min_y = moves.front().from_y;
+    for (const Move &move : moves) {
+        min_x = std::min(min_x, move.x);
+        max_x = std::max(max_x, move.x);
+        min_y = std::min({min_y, move.from_y, move.to_y});
+    }
+    // Layer and side of the box, upright or leaning -> height of the pass or turn -> the speeds it prints at.
+    std::map<std::pair<std::string, bool>, std::map<std::string, std::set<long>>> speeds;
+    for (const Move &move : moves)
+        if (std::max(move.from_y, move.to_y) > min_y + 2. && std::min(move.from_y, move.to_y) < min_y + 18.)
+            speeds[{move.layer, move.x > 0.5 * (min_x + max_x)}][move.z].insert(move.feedrate);
     size_t compared = 0;
     for (const auto &[layer_side, passes] : speeds) {
         if (passes.size() < 2)

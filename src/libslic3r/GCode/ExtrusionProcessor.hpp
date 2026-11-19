@@ -504,7 +504,7 @@ public:
     using Floating  = Distancer::Floating;
     using Position  = Vec<Line::Dim, Scalar>;
 
-    // `half_width` is half the width of the line measured, which the estimate adds to the distances again: the wall of
+    // `half_width` is half the width the line is judged with, which the estimate adds to the distances again: the wall of
     // the layer overhangs by as much as its outline does.
     FineWallBoundaries(const Distancer &lower, const Distancer *outline, double half_width) :
         m_lower(lower), m_outline(outline), m_half_width(half_width) {}
@@ -546,8 +546,10 @@ class ExtrusionQualityEstimator
     std::vector<PrecomputedOverhangLayer>                                     precomputed_layers;
     const PrintObject                                                        *current_object;
     // Orca: Set while a line of a fine wall is estimated: the outline of its layer, which it is measured from (see
-    // FineWallBoundaries). The distances precomputed for the points of the layer and its curled lines do not apply then.
+    // FineWallBoundaries), and the width of the outer wall of that layer, which it is judged with in place of its own.
+    // The distances precomputed for the points of the layer and its curled lines do not apply then.
     std::shared_ptr<const AABBTreeLines::LinesDistancer<Linef3>>              fine_wall_outline;
+    float                                                                     fine_wall_width { 0.f };
 
     const PrecomputedOverhangLayer *precomputed_for(const PrintObject *object) const
     {
@@ -565,7 +567,11 @@ class ExtrusionQualityEstimator
 public:
     void set_current_object(const PrintObject *object) { current_object = object; }
     // Orca: See fine_wall_outline, nullptr to measure the points where they are again.
-    void set_fine_wall_outline(std::shared_ptr<const AABBTreeLines::LinesDistancer<Linef3>> outline) { fine_wall_outline = std::move(outline); }
+    void set_fine_wall_outline(std::shared_ptr<const AABBTreeLines::LinesDistancer<Linef3>> outline, float width = 0.f)
+    {
+        fine_wall_outline = std::move(outline);
+        fine_wall_width   = width;
+    }
 
     // Takes the data computed ahead for the layer about to be generated, replacing the previous layer's.
     void set_precomputed_layers(std::vector<PrecomputedOverhangLayer> &&layers) { precomputed_layers = std::move(layers); }
@@ -600,13 +606,16 @@ public:
                                                            // does not depend on overlap.
                                                            float                               fan_overlap_threshold = -1.0f)
     {
+        // Orca: The lines of a fine wall differ in width from each other and from the wall of the layer they replace. They
+        // are judged as that wall, so that the same overhang gives the same speed and fan for all of them.
+        const float width = fine_wall_outline && fine_wall_width > 0.f ? fine_wall_width : float(path.width);
         size_t                               speed_sections_count = std::min(overlaps.values.size(), speeds.values.size());
         std::vector<std::pair<float, float>> speed_sections;
-        
-        
-        
+
+
+
         for (size_t i = 0; i < speed_sections_count; i++) {
-            float distance = path.width * (1.0 - (overlaps.get_at(i) / 100.0));
+            float distance = width * (1.0 - (overlaps.get_at(i) / 100.0));
             float speed    = speeds.get_at(i).percent ? (ext_perimeter_speed * speeds.get_at(i).value / 100.0) : speeds.get_at(i).value;
             speed_sections.push_back({distance, speed});
         }
@@ -676,7 +685,7 @@ public:
         if (const PrecomputedOverhangLayer *precomputed = precomputed_for(current_object);
             ! fine_wall_outline && precomputed != nullptr && precomputed->layer->lower_layer == prev_layer_sources[current_object])
             known = &precomputed->distances;
-        const FineWallBoundaries prev_boundaries(or_empty(prev_layer_boundaries[current_object]), fine_wall_outline.get(), 0.5 * path.width);
+        const FineWallBoundaries prev_boundaries(or_empty(prev_layer_boundaries[current_object]), fine_wall_outline.get(), 0.5 * width);
         const CurledLines       &prev_curled = fine_wall_outline ? or_empty(std::shared_ptr<const CurledLines>()) :
                                                                    or_empty(prev_curled_extrusions[current_object]);
         auto known_distance = [known](const Point3 &point) -> const double * {
@@ -687,10 +696,10 @@ public:
         };
 
         std::vector<ExtendedPoint<3>> extended_points =
-            estimate_points_properties<true, true, true, true, false>(path.polyline.points, prev_boundaries, path.width, -1,
+            estimate_points_properties<true, true, true, true, false>(path.polyline.points, prev_boundaries, width, -1,
                                                                smallest_distance_with_lower_speed, effective_speed, fan_overlap_threshold,
                                                                known_distance);
-        const auto width_inv = 1.0f / path.width;
+        const auto width_inv = 1.0f / width;
         std::vector<ProcessedPoint> processed_points;
         processed_points.reserve(extended_points.size());
         for (size_t i = 0; i < extended_points.size(); i++) {

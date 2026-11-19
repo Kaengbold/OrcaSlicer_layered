@@ -166,9 +166,13 @@ itself. It is printed with `layer_refinement_speed` and
 `layer_refinement_acceleration`, unless they overhang. A fine wall gets the
 overhang speed and fan of the wall of the layer it replaces: each of its points is
 measured from the nearest point of the outline of its layer against the layer below
-(`FineWallBoundaries`). The passes of a layer and the turns of a helix lie at
-slightly different places, which would each tip the speed and fan their own way;
-measured from the outline, all of them print alike over the same stretch of it.
+(`FineWallBoundaries`), and judged with the width of the outer wall of the layer
+rather than its own. The passes of a layer and the turns of a helix lie at
+slightly different places, and the outer and inner lines of a pass differ in
+width, which would each tip the speed and fan their own way; judged as the wall
+of the layer, all of them print alike over the same stretch of the outline. Only
+where a higher pass reaches past the corner of a lower one does it print that
+corner on its own.
 At 0 the speed and acceleration follow the outer and inner wall
 values; the settings page then shows the outer wall value in their fields, while
 the stored value stays 0 until it is edited.

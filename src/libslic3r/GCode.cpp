@@ -9862,8 +9862,12 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
                 if (m_fine_wall_outline_layer != m_layer) {
                     m_fine_wall_outline_layer = m_layer;
                     m_fine_wall_outline       = std::make_shared<const AABBTreeLines::LinesDistancer<Linef3>>(to_unscaled_linesf3(m_layer->lslices));
+                    // The outer wall of the layer, of the region whose flows the passes take (see Layer::apply_refinement()).
+                    const auto refined = std::find_if(m_layer->regions().begin(), m_layer->regions().end(),
+                                                      [](const LayerRegion *layerm) { return ! layerm->refinement_passes.empty(); });
+                    m_fine_wall_width  = refined == m_layer->regions().end() ? 0.f : (*refined)->flow(frExternalPerimeter).width();
                 }
-                m_extrusion_quality_estimator.set_fine_wall_outline(m_fine_wall_outline);
+                m_extrusion_quality_estimator.set_fine_wall_outline(m_fine_wall_outline, m_fine_wall_width);
             }
             const ExtrusionPath &estimated_path = path;
 

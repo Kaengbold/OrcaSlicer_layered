@@ -733,9 +733,11 @@ protected:
     std::map<unsigned int, IslandOrderCacheEntry> m_ordering_cache;
 
     ExtrusionQualityEstimator m_extrusion_quality_estimator;
-    // Orca: The outline of the layer the lines of a fine wall are measured from for their overhang, and that layer.
+    // Orca: The outline of the layer the lines of a fine wall are measured from for their overhang, the width of the outer
+    // wall of the layer they are judged with, and that layer.
     const Layer                                                 *m_fine_wall_outline_layer { nullptr };
     std::shared_ptr<const AABBTreeLines::LinesDistancer<Linef3>> m_fine_wall_outline;
+    float                                                        m_fine_wall_width { 0.f };
 
 
     /* Origin of print coordinates expressed in unscaled G-code coordinates.
