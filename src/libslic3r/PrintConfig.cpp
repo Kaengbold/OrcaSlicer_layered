@@ -504,10 +504,8 @@ CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(SeamScarfType)
 
 // Orca
 static t_config_enum_values s_keys_map_FineWallJointSpeed{
-    { "smoothed",      int(FineWallJointSpeed::Smoothed) },
-    { "separate",      int(FineWallJointSpeed::Separate) },
-    { "gradual",       int(FineWallJointSpeed::Gradual) },
-    { "constant_flow", int(FineWallJointSpeed::ConstantFlow) },
+    { "flow_limited", int(FineWallJointSpeed::FlowLimited) },
+    { "separate",     int(FineWallJointSpeed::Separate) },
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(FineWallJointSpeed)
 
@@ -4341,24 +4339,18 @@ void PrintConfigDef::init_fff_params()
     def->category = L("Speed");
     def->tooltip = L("How the speed of the wall changes over the ramp where a fine wall ends on a wall at the normal layer "
                      "height.\n\n"
-                     "Smoothed: as separate, with the extrusion rate smoothing of the print at 300 mm³/s² where it is set "
-                     "to 0, so that the speed follows the flow over the joint.\n"
-                     "Separate: the ramp is printed at the fine wall speed, and the wall past it at the outer wall speed.\n"
-                     "Gradual: the speed rises with the ramp, from the fine wall speed to the outer wall speed, so that the "
-                     "flow rises smoothly.\n"
-                     "Constant flow: the ramp is printed with the flow of the outer wall, faster where it is thinner, up to "
-                     "the maximum speed of the machine, so that the flow does not change at the joint.");
+                     "Flow limited: the whole ramp is printed at one speed, no faster than the fine walls or the wall past it, "
+                     "and slow enough that its flow rises no faster than the extrusion rate smoothing slope (300 mm³/s² when "
+                     "that is 0). The flow then changes with the thickness of the wall only, and the printer accelerates to "
+                     "the speed of either side past the ramp.\n"
+                     "Separate: the ramp is printed at the fine wall speed, and the wall past it at the outer wall speed.");
     def->enum_keys_map = &ConfigOptionEnum<FineWallJointSpeed>::get_enum_values();
-    def->enum_values.push_back("smoothed");
+    def->enum_values.push_back("flow_limited");
     def->enum_values.push_back("separate");
-    def->enum_values.push_back("gradual");
-    def->enum_values.push_back("constant_flow");
-    def->enum_labels.push_back(L("Smoothed"));
+    def->enum_labels.push_back(L("Flow limited"));
     def->enum_labels.push_back(L("Separate"));
-    def->enum_labels.push_back(L("Gradual"));
-    def->enum_labels.push_back(L("Constant flow"));
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionEnum<FineWallJointSpeed>(FineWallJointSpeed::Smoothed));
+    def->set_default_value(new ConfigOptionEnum<FineWallJointSpeed>(FineWallJointSpeed::FlowLimited));
 
     def = this->add("layer_refinement_travel_without_retraction", coFloat);
     def->label = L("Fine wall travel without retraction");
@@ -5809,7 +5801,7 @@ void PrintConfigDef::init_fff_params()
                      "extrusion to a lower flow (lower speed/smaller width) extrusion and vice versa.\n\n"
                      "It defines the maximum rate by which the extruded volumetric flow in mm³/s can change over time. "
                      "Higher values mean higher extrusion rate changes are allowed, resulting in faster speed transitions.\n\n" 
-                     "A value of 0 disables the feature, except in a print with fine walls whose joint speed is Smoothed, which is smoothed at 300 mm³/s².\n\n"
+                     "A value of 0 disables the feature.\n\n"
                      "For a high speed, high flow direct drive printer (like the Bambu lab or Voron) this value is usually not needed. "
                      "However it can provide some marginal benefit in certain cases where feature speeds vary greatly. For example, "
                      "when there are aggressive slowdowns due to overhangs. In these cases a high value of around 300-350 mm³/s² is "
@@ -9919,6 +9911,9 @@ void PrintConfigDef::handle_legacy(t_config_option_key &opt_key, std::string &va
     //BBS: handle legacy options
     if (opt_key == "curr_bed_type" && value == "SuperTack Plate") {
         value = "Supertack Plate";
+    } else if (opt_key == "layer_refinement_joint_speed" && (value == "smoothed" || value == "gradual" || value == "constant_flow")) {
+        // Orca: Joint speeds of test builds, all replaced by the flow limited one.
+        value = "flow_limited";
     } else if (opt_key == "enable_wipe_tower") {
         opt_key = "enable_prime_tower";
     } else if (opt_key == "wipe_tower_width") {

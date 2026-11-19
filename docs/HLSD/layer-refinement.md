@@ -106,21 +106,18 @@ scarf of the prototype (`scripts/layer_combination_coupons.py`):
   0.35 mm inwards, square to its end and at the height of the tip, as the wedge
   rises behind it. Only then does the nozzle rise to travel.
 - `layer_refinement_joint_speed` sets the speed of the wall of the layer over
-  the ramp: *smoothed*, the default, is *separate* with the extrusion rate
-  smoothing below; *separate* prints it at the fine wall speed, and the wall past it at
-  the outer wall speed; *gradual* raises the speed with the height of the ramp
-  from one to the other, so that the flow rises smoothly; *constant flow*
-  prints it with the flow of the outer wall, faster the thinner it is, up to
-  the maximum speed of the machine, so that the flow does not change at the
-  joint. The outer wall speed here is the one the wall prints at, within the
-  maximum volumetric speed of the filament.
-- The flow still changes over every joint, so a print with fine walls whose
-  joint speed is *smoothed* is smoothed at 300 mm³/s² where
-  `max_volumetric_extrusion_rate_slope` is 0, and is then printed without arcs,
-  as the smoothing reads straight moves only. The smoothing also evens out the
-  flow between neighbouring lines of a kind, so it lowers the speed along the
-  steps of a falling ramp; the other modes leave it off. Calibration prints,
-  which turn the smoothing off, are left alone.
+  the ramp, where its section, and with it its flow at a given speed, grows
+  from that of a pass to its own. *Flow limited*, the default, prints the whole
+  ramp at one speed: no faster than the fine walls on one side or the wall of
+  the layer on the other (within the maximum volumetric speed of the
+  filament), and no faster than lets the flow rise at the extrusion rate
+  smoothing slope, or 300 mm³/s² where that is 0. Over a ramp of length `L`
+  gaining `ΔA` of section, that is `v ≤ sqrt(slope · L / ΔA)`. The flow then
+  changes with the section only, and the printer accelerates to the speed of
+  either side on a line of one section, which pressure advance follows. This
+  is what the prototype does by printing the fine walls, the ramp and the wall
+  at one speed, while each side keeps its own speed. *Separate* prints the
+  ramp at the fine wall speed, and the wall past it at its own.
 
 ### Helices
 

@@ -726,25 +726,28 @@ TEST_CASE("The wall of a layer rises fuller where it leaves a fine zone than it 
 
 TEST_CASE("The joint speed sets how the speed follows the ramp of a scarf joint", "[LayerRefinement]")
 {
-    // Fine walls at 20 mm/s, the outer wall at 60 mm/s, a machine limit of 200 mm/s and no limit from the volumetric
-    // speed or the layer time. Over the ramp, the wall of the layer is between the height of a pass and that of the
-    // layer, and prints as a fine wall.
-    const std::string mode = GENERATE("separate", "gradual", "constant_flow");
-    Print             print;
+    // No limit from the volumetric speed or the layer time, and no extrusion rate smoothing, so the slope of the flow
+    // limited joint is 300 mm³/s². Over the ramp, the wall of the layer is between the height of a pass and that of the
+    // layer, and prints as a fine wall. Over 3 mm, the section of a 0.2 mm wall gains about 0.06 mm² from that of a
+    // 0.05 mm pass, so that the flow rises at 300 mm³/s² at about 120 mm/s.
+    struct Case { const char *mode; double fine_speed, wall_speed; };
+    const Case c = GENERATE(Case{"separate", 150., 150.}, Case{"flow_limited", 40., 150.},
+                            Case{"flow_limited", 150., 40.}, Case{"flow_limited", 150., 150.});
+    CAPTURE(c.mode, c.fine_speed, c.wall_speed);
+    Print print;
     slice_one_side_refined(print, pass_height, 3.,
-                           {{"layer_refinement_speed", "20"},
-                            {"outer_wall_speed", "60"},
-                            {"machine_max_speed_x", "200,200"},
-                            {"machine_max_speed_y", "200,200"},
+                           {{"layer_refinement_speed", std::to_string(c.fine_speed)},
+                            {"outer_wall_speed", std::to_string(c.wall_speed)},
                             {"filament_max_volumetric_speed", "100"},
                             {"slow_down_for_layer_cooling", "0"},
                             {"enable_overhang_speed", "0"},
-                            {"layer_refinement_joint_speed", mode}});
-    const std::string  gcode = Test::gcode(print);
-    std::istringstream lines(gcode);
-    std::string        role;
-    double             height = 0., feedrate = 0.;
-    size_t             ramp_moves = 0;
+                            {"max_volumetric_extrusion_rate_slope", "0"},
+                            {"layer_refinement_joint_speed", c.mode}});
+    const std::string   gcode = Test::gcode(print);
+    std::istringstream  lines(gcode);
+    std::string         role;
+    double              height = 0., feedrate = 0.;
+    std::vector<double> ramp_speeds;
     for (std::string line; std::getline(lines, line);) {
         if (line.rfind(";TYPE:", 0) == 0)
             role = line.substr(6);
@@ -758,17 +761,23 @@ TEST_CASE("The joint speed sets how the speed follows the ramp of a scarf joint"
             if (role != "Fine wall" || e == std::string::npos || std::atof(move.c_str() + e + 2) <= 0. ||
                 move.find(" X") == std::string::npos || height <= pass_height + 1e-3 || height >= layer_height - 1e-3)
                 continue;
-            ++ ramp_moves;
-            const double speed = feedrate / 60.;
-            if (mode == "separate")
-                CHECK_THAT(speed, WithinRel(20., 0.01));
-            else if (mode == "gradual")
-                CHECK_THAT(speed, WithinRel(20. + 40. * (height - pass_height) / (layer_height - pass_height), 0.02));
-            else
-                CHECK_THAT(speed, WithinRel(std::min(60. * layer_height / height, 200.), 0.02));
+            ramp_speeds.push_back(feedrate / 60.);
         }
     }
-    CHECK(ramp_moves > 0);
+    REQUIRE(! ramp_speeds.empty());
+    // The whole ramp prints at one speed.
+    for (const double speed : ramp_speeds)
+        CHECK_THAT(speed, WithinRel(ramp_speeds.front(), 0.01));
+    if (std::string(c.mode) == "separate")
+        CHECK_THAT(ramp_speeds.front(), WithinRel(c.fine_speed, 0.01));
+    else if (c.fine_speed != c.wall_speed)
+        // Not faster than the slower side.
+        CHECK_THAT(ramp_speeds.front(), WithinRel(std::min(c.fine_speed, c.wall_speed), 0.01));
+    else {
+        // Both sides at 150 mm/s: slower over the ramp, to limit the rise of the flow.
+        CHECK(ramp_speeds.front() < 140.);
+        CHECK(ramp_speeds.front() > 90.);
+    }
 }
 
 TEST_CASE("All fine walls of a layer take the fine wall speed of the refined region", "[LayerRefinement]")
@@ -813,24 +822,10 @@ TEST_CASE("All fine walls of a layer take the fine wall speed of the refined reg
     CHECK(ramp_moves > 0);
 }
 
-TEST_CASE("A smoothed joint speed smooths the extrusion rate where it is not set", "[LayerRefinement]")
+TEST_CASE("The joint speeds of test builds load as the flow limited one", "[LayerRefinement]")
 {
-    // The flow of the wall of the layer jumps from that of the ramp to its own at the end of a scarf joint, which a
-    // smoothing of 300 mm³/s² slows down. The G-code is compared without the lines that print the two settings and the
-    // time it was generated at.
-    const auto sliced_gcode = [](const char *joint_speed, const char *slope) {
-        Print print;
-        slice_one_side_refined(print, pass_height, 3.,
-                               {{"layer_refinement_joint_speed", joint_speed}, {"max_volumetric_extrusion_rate_slope", slope}});
-        std::istringstream lines(Test::gcode(print));
-        std::string        gcode;
-        for (std::string line; std::getline(lines, line);)
-            if (line.find("max_volumetric_extrusion_rate_slope") == std::string::npos &&
-                line.find("layer_refinement_joint_speed") == std::string::npos && line.find("; generated by") == std::string::npos)
-                gcode += line + "\n";
-        return gcode;
-    };
-    const std::string smoothed = sliced_gcode("separate", "300");
-    CHECK(sliced_gcode("smoothed", "0") == smoothed);
-    CHECK(sliced_gcode("separate", "0") != smoothed);
+    const std::string legacy = GENERATE("smoothed", "gradual", "constant_flow");
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({{"layer_refinement_joint_speed", legacy}});
+    CHECK(config.opt_serialize("layer_refinement_joint_speed") == "flow_limited");
 }

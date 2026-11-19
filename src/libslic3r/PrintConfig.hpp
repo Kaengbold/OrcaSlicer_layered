@@ -406,14 +406,10 @@ enum class SeamScarfType {
 
 // Orca: How the speed of the wall of a layer follows its ramp over the scarf joint of a fine wall.
 enum class FineWallJointSpeed {
-    // As Separate, with the extrusion rate smoothing of the print at 300 mm³/s² where it is not set.
-    Smoothed,
+    // The ramp at one speed, no faster than either side and slow enough to limit the rise of its flow.
+    FlowLimited,
     // The ramp at the fine wall speed, the wall past it at its own.
     Separate,
-    // The speed rises with the height of the ramp, from the fine wall speed to that of the wall.
-    Gradual,
-    // The ramp at the flow of the wall: the thinner it is, the faster, up to the machine limit.
-    ConstantFlow,
 };
 
 // Orca

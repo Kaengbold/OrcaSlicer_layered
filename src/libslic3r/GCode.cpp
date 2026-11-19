@@ -3559,24 +3559,9 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     if (print.config().spiral_mode.value)
         m_spiral_vase = make_unique<SpiralVase>(print.config());
 
-    // Orca: The flow of a wall changes over every joint of a fine wall, so a print with fine walls whose joint speed is
-    // Smoothed is smoothed at 300 mm³/s² where the extrusion rate smoothing is not set.
-    const bool fine_walls = std::any_of(print.objects().begin(), print.objects().end(), [](const PrintObject *object) {
-        return std::any_of(object->layers().begin(), object->layers().end(), [](const Layer *layer) {
-            return layer->has_fine_walls && std::any_of(layer->regions().begin(), layer->regions().end(), [](const LayerRegion *layerm) {
-                return ! layerm->refinement_passes.empty() &&
-                    layerm->region().config().layer_refinement_joint_speed.value == FineWallJointSpeed::Smoothed;
-            });
-        });
-    });
-    if (print.config().max_volumetric_extrusion_rate_slope.value > 0) {
+    if (print.config().max_volumetric_extrusion_rate_slope.value > 0){
     		m_pressure_equalizer = make_unique<PressureEqualizer>(print.config());
     		m_enable_extrusion_role_markers = (bool)m_pressure_equalizer;
-    } else if (fine_walls && print.calib_mode() == CalibMode::Calib_None) {
-        GCodeConfig config(print.config());
-        config.max_volumetric_extrusion_rate_slope.value = 300.;
-        m_pressure_equalizer            = make_unique<PressureEqualizer>(config);
-        m_enable_extrusion_role_markers = true;
     } else
 	    m_enable_extrusion_role_markers = false;
 
@@ -9767,30 +9752,42 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
         } else {
             throw Slic3r::InvalidArgument("Invalid speed");
         }
-        // Orca: The wall of the layer over the ramp of a scarf joint, thicker than a pass and thinner than the layer,
-        // follows layer_refinement_joint_speed of the refined region.
-        if (fine_wall && ! path.z_contoured && sloped == nullptr && fine_wall_config != &m_config) {
-            const FineWallJointSpeed mode        = fine_wall_config->layer_refinement_joint_speed.value;
-            const double             pass_height = m_layer->height /
-                layer_refinement_pass_count(m_layer->height, fine_wall_config->layer_refinement_height.value);
-            if ((mode == FineWallJointSpeed::Gradual || mode == FineWallJointSpeed::ConstantFlow) && path.height > pass_height + EPSILON) {
-                // The speed the wall of the layer is printed at past the ramp, within the maximum volumetric speed.
-                const double wall_mm3_per_mm = _mm3_per_mm * m_layer->height / path.height;
-                const double max_volumetric  = FILAMENT_CONFIG(filament_max_volumetric_speed);
-                double       wall_speed      = NOZZLE_CONFIG(outer_wall_speed);
-                if (max_volumetric > 0. && (wall_speed == 0. || wall_speed * wall_mm3_per_mm > max_volumetric))
-                    wall_speed = max_volumetric / wall_mm3_per_mm;
-                if (mode == FineWallJointSpeed::Gradual) {
-                    // From the fine wall speed at the height of a pass to the wall speed at that of the layer.
-                    speed += (wall_speed - speed) * (path.height - pass_height) / (m_layer->height - pass_height);
-                } else {
-                    // The flow of the wall: its flow follows its height, so its speed goes inversely, up to the
-                    // maximum speed of the machine.
-                    speed = wall_speed * m_layer->height / path.height;
-                    for (const double limit : { m_config.machine_max_speed_x.get_at(0), m_config.machine_max_speed_y.get_at(0) })
-                        if (limit > 0.)
-                            speed = std::min(speed, limit);
-                }
+        // Orca: Over the ramp of a scarf joint, the wall of the layer thickens from the height of a pass to its own, so
+        // its flow rises at any one speed. With a flow limited joint speed, the whole ramp, falling or rising, prints at
+        // one speed: no faster than the fine walls on one side or the wall of the layer on the other, so that the flow
+        // changes with the section only, and slow enough that it rises no faster than the extrusion rate smoothing
+        // slope, 300 mm³/s² where that is not set. Off the ramp, the printer accelerates or decelerates to the speed of
+        // either side on a line of one section, which pressure advance follows. The ramp never asks the hot end for more
+        // flow than the wall past it.
+        if (fine_wall && ! path.z_contoured && sloped == nullptr && fine_wall_config != &m_config &&
+            fine_wall_config->layer_refinement_joint_speed.value == FineWallJointSpeed::FlowLimited) {
+            const double layer_height = m_layer->height;
+            const double pass_height  = layer_height /
+                layer_refinement_pass_count(layer_height, fine_wall_config->layer_refinement_height.value);
+            if (path.height > pass_height + EPSILON && layer_height > pass_height + EPSILON) {
+                // The section of a line of this width at a height, scaled to the flow of this path, ratios included.
+                const auto section = [&path, &_mm3_per_mm](double height) {
+                    const auto area = [&path](double h) { return h * std::max(path.width - h * (1. - 0.25 * PI), 0.5 * h); };
+                    return _mm3_per_mm * area(height) / area(path.height);
+                };
+                // The speed of the wall past the ramp, within the maximum volumetric speed.
+                const double max_volumetric = FILAMENT_CONFIG(filament_max_volumetric_speed);
+                double       wall_speed     = path.role() == erPerimeter ? NOZZLE_CONFIG(inner_wall_speed) : NOZZLE_CONFIG(outer_wall_speed);
+                if (max_volumetric > 0. && (wall_speed <= 0. || wall_speed * section(layer_height) > max_volumetric))
+                    wall_speed = max_volumetric / section(layer_height);
+                // A speed of 0 is the maximum volumetric speed, here that of the passes on the fine side.
+                if (speed <= 0. && max_volumetric > 0.)
+                    speed = max_volumetric / section(pass_height);
+                if (wall_speed > 0.)
+                    speed = speed > 0. ? std::min(speed, wall_speed) : wall_speed;
+                // Over the length of the ramp at speed v, the flow rises by v times the gain in section, in the time of
+                // the length over v: a slope of v² times the gain over the length.
+                const double gain   = section(layer_height) - section(pass_height);
+                const double length = fine_wall_config->layer_refinement_scarf_length.value;
+                const double slope  = m_config.max_volumetric_extrusion_rate_slope.value > 0. ?
+                    m_config.max_volumetric_extrusion_rate_slope.value : 300.;
+                if (gain > 0. && length > 0.)
+                    speed = std::min(speed, std::sqrt(slope * length / gain));
             }
         }
     }
@@ -10326,9 +10323,7 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
             }
             // BBS: use G1 if not enable arc fitting or has no arc fitting result or in spiral_mode mode or we are doing sloped extrusion
             // Attention: G2 and G3 is not supported in spiral_mode mode
-            if (m_config.enable_arc_fitting.value == ArcFittingMode::Disabled || path.polyline.fitting_result.empty() || m_config.spiral_mode || sloped != nullptr || path.z_contoured || this->should_disable_arc_fitting() ||
-                // Orca: The extrusion rate smoothing reads lines only, and is also on by itself with fine walls.
-                m_pressure_equalizer) {
+            if (m_config.enable_arc_fitting.value == ArcFittingMode::Disabled || path.polyline.fitting_result.empty() || m_config.spiral_mode || sloped != nullptr || path.z_contoured || this->should_disable_arc_fitting()) {
                 double path_length = 0.;
                 double total_length = sloped == nullptr ? 0. : path.polyline.length() * SCALING_FACTOR;
                 double saved_z      = m_writer.get_position().z();
