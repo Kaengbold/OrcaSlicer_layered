@@ -9544,9 +9544,10 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
     gcode += this->unretract();
     m_config.apply(m_calib_config);
 
-    // Orca: A wall thinner than the layer in a refined region is a pass of the fine wall, or the wall of the layer
-    // thinned over a scarf joint.
-    const bool fine_wall = m_config.layer_refinement_height.value > 0 && m_layer != nullptr &&
+    // Orca: A wall thinner than a refined layer is a pass of the fine wall, or the wall of the layer thinned over a
+    // scarf joint. It is told by the layer, not by the region printed: the top pass is spliced into the wall of the
+    // region it meets, which is not refined itself.
+    const bool fine_wall = m_layer != nullptr && ! m_layer->refinement_top_support.empty() &&
         (path.role() == erExternalPerimeter || path.role() == erPerimeter) && path.height < m_layer->height - EPSILON;
 
     // Orca: optimize for Klipper, set acceleration and jerk in one command

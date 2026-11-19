@@ -313,6 +313,34 @@ TEST_CASE("The top line of a layer runs through the fine and the coarse wall in 
     CHECK(mixed_loops == 1);
 }
 
+TEST_CASE("The top pass spliced into the wall of an unrefined region prints as a fine wall", "[LayerRefinement]")
+{
+    Print print;
+    slice_one_side_refined(print, pass_height, 3.);
+    const std::string gcode = Test::gcode(print);
+    // The region the top pass is spliced into has no fine wall height of its own. Its wall at the height of a pass is
+    // still a fine wall, with the speed, fan and overhang judgement of the passes under it.
+    std::istringstream lines(gcode);
+    std::string        role;
+    double             height = 0.;
+    size_t             fine = 0, outer_at_pass_height = 0;
+    for (std::string line; std::getline(lines, line);) {
+        if (line.rfind(";TYPE:", 0) == 0)
+            role = line.substr(6);
+        else if (line.rfind(";HEIGHT:", 0) == 0)
+            height = std::atof(line.c_str() + 8);
+        else if (line.rfind("G1 ", 0) == 0 && line.find(" E") != std::string::npos && line.find(" X") != std::string::npos &&
+                 std::abs(height - pass_height) < 1e-3) {
+            if (role == "Fine wall")
+                ++ fine;
+            else if (role == "Outer wall")
+                ++ outer_at_pass_height;
+        }
+    }
+    CHECK(fine > 0);
+    CHECK(outer_at_pass_height == 0);
+}
+
 TEST_CASE("A scarf joint extrudes the same volume", "[LayerRefinement]")
 {
     Print coarse;

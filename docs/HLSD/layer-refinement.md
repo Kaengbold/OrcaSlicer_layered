@@ -159,8 +159,10 @@ A travel from a fine wall shorter than `layer_refinement_travel_without_retracti
 (5 mm by default) goes without a retraction, a wipe and a Z hop: on thin passes,
 the restart after each retraction shows as a seam.
 
-A wall thinner than the layer in a refined region, which is a pass or the wall
-of the layer thinned over a scarf, is printed with `layer_refinement_speed` and
+A wall thinner than a refined layer, which is a pass or the wall of the layer
+thinned over a scarf, is printed as a fine wall whatever region it belongs to: the
+top pass is spliced into the wall of the region it meets, which is not refined
+itself. It is printed with `layer_refinement_speed` and
 `layer_refinement_acceleration`, unless they overhang. A pass rests on the pass
 under it, not on the layer below, so its overhang speed and fan are judged against
 the outline of that pass: each layer is sliced once more at the middle of a pass
