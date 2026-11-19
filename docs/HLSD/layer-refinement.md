@@ -92,12 +92,26 @@ scarf of the prototype (`scripts/layer_combination_coupons.py`):
   (`splice_top_passes()`), so there is no start or end at the joint.
 - Over the ramp, the wall of the layer rises from the height of a pass to its
   own, linearly where it runs into the fine zone and as u^0.8 with a bump of
-  up to 10 % where it leaves it, to pre-pressurise the nozzle.
+  up to 10 % where it leaves it, to pre-pressurise the nozzle. Which of the two
+  a stretch of the wall takes is decided piece by piece, in the direction it is
+  printed, as a wall between two joints both leaves and enters a fine zone. The
+  walls are ramped after splicing, which may turn them round, and a ramped open
+  wall is never reversed.
 - Under it, the lower passes run on as a wedge: pass k of N ends
   `L · ((N − k) − h_min / h) / (N − 1)` past the fine zone, and its top follows
   `min(k·h, max((k − 1)·h + h_min, (N − 1)·h·(1 − u / L)))`, printed as a Z
   contoured path whose flow follows its height. The wedge and the ramp add up
   to the height of the layer everywhere.
+- A pass that ends in the tip of the wedge always retracts there, and wipes
+  0.35 mm inwards, square to its end and at the height of the tip, as the wedge
+  rises behind it. Only then does the nozzle rise to travel.
+- `layer_refinement_joint_speed` sets the speed of the wall of the layer over
+  the ramp: *separate* prints it at the fine wall speed, and the wall past it at
+  the outer wall speed; *gradual* raises the speed with the height of the ramp
+  from one to the other, so that the flow rises smoothly; *constant flow*
+  prints it with the flow of the outer wall, faster the thinner it is, up to
+  the maximum speed of the machine, so that the flow does not change at the
+  joint.
 
 ### Helices
 
@@ -148,7 +162,10 @@ the layer is printed yet.
 
 With `layer_refinement_z_from_above` (on by default), a pass printed above the
 one before is reached from 0.1 mm above it, as a layer is, so that play in the Z
-axis does not change the heights of the passes against each other.
+axis does not change the heights of the passes against each other. The passes
+are compared by their heights, not by where the nozzle is, and the nozzle rises
+during the travel, after the retraction and the wipe at the end of the pass
+before.
 `layer_refinement_fan_speed` gives the passes a fan speed of their own: the
 G-code marks them with `;_FINE_WALL_FAN_START S<speed>` and `;_FINE_WALL_FAN_END`,
 and the cooling buffer applies it where no overhang or internal bridge fan speed
@@ -157,7 +174,8 @@ wall, which is printed after them and presses against them.
 
 A travel from a fine wall shorter than `layer_refinement_travel_without_retraction`
 (5 mm by default) goes without a retraction, a wipe and a Z hop: on thin passes,
-the restart after each retraction shows as a seam.
+the restart after each retraction shows as a seam. A pass ending in the tip of a
+scarf wedge retracts all the same.
 
 A wall thinner than a refined layer, which is a pass or the wall of the layer
 thinned over a scarf, is printed as a fine wall whatever region it belongs to: the

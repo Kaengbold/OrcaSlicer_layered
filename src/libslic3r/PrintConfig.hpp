@@ -404,6 +404,16 @@ enum class SeamScarfType {
     All,
 };
 
+// Orca: How the speed of the wall of a layer follows its ramp over the scarf joint of a fine wall.
+enum class FineWallJointSpeed {
+    // The ramp at the fine wall speed, the wall past it at its own.
+    Separate,
+    // The speed rises with the height of the ramp, from the fine wall speed to that of the wall.
+    Gradual,
+    // The ramp at the flow of the wall: the thinner it is, the faster, up to the machine limit.
+    ConstantFlow,
+};
+
 // Orca
 enum EnsureVerticalShellThickness {
     evstNone,
@@ -815,6 +825,7 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportMaterialInterfacePattern)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SupportType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SeamPosition)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SeamScarfType)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(FineWallJointSpeed)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SLADisplayOrientation)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(SLAPillarConnectionMode)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BrimType)
@@ -1505,6 +1516,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloat,                layer_refinement_min_step))
     ((ConfigOptionFloat,                layer_refinement_acceleration))
     ((ConfigOptionFloat,                layer_refinement_speed))
+    ((ConfigOptionEnum<FineWallJointSpeed>, layer_refinement_joint_speed))
     ((ConfigOptionFloat,                layer_refinement_travel_without_retraction))
     ((ConfigOptionInt,                  layer_refinement_fan_speed))
     ((ConfigOptionPercent,              layer_refinement_wall_overlap))

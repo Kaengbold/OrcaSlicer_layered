@@ -590,6 +590,8 @@ static Points3 subdivide_near_zone(const Points3 &points, const ZoneDistance &di
 // Orca: The wall of the layer over a joint ramps from the height of a pass at the fine zone up to the layer height
 // `ramp` further on, as the top line of the merge pass of the prototype (scripts/layer_combination_coupons.py). Leaving
 // the fine zone, the ramp is pre-pressurised: it rises as u^0.8 with a bump of up to 10 %, entering it, it is linear.
+// Whether a piece leaves or enters the zone is decided piece by piece, in the direction the path is printed: a wall
+// between two joints does both.
 static ExtrusionPaths ramp_outer_wall(const ExtrusionPath &path, const ZoneDistance &distance, double ramp, double pass_height)
 {
     const double layer_height = path.height;
@@ -597,11 +599,11 @@ static ExtrusionPaths ramp_outer_wall(const ExtrusionPath &path, const ZoneDista
         return { path };
     const double  scaled_ramp = scale_(ramp);
     const Points3 points      = subdivide_near_zone(path.polyline.points, distance, scaled_ramp, scale_(0.2));
-    const bool    leaving     = distance(points.front()) < distance(points.back());
     ExtrusionPaths out;
     for (size_t idx = 1; idx < points.size(); ++ idx) {
         const Point  middle((points[idx - 1].x() + points[idx].x()) / 2, (points[idx - 1].y() + points[idx].y()) / 2);
-        const double u      = std::min(1., distance(middle) / scaled_ramp);
+        const bool   leaving = distance(points[idx]) > distance(points[idx - 1]);
+        const double u       = std::min(1., distance(middle) / scaled_ramp);
         const double rise   = leaving ? std::pow(u, 0.8) * (1. + 0.1 * std::sin(PI * u)) : u;
         const double height = u >= 1. ? layer_height : pass_height + (layer_height - pass_height) * rise;
         if (! out.empty() && std::abs(out.back().height - height) < 1e-3) {
@@ -617,7 +619,8 @@ static ExtrusionPaths ramp_outer_wall(const ExtrusionPath &path, const ZoneDista
     return out;
 }
 
-// Orca: Ramps the outer walls in `collection` over the joints with a fine zone.
+// Orca: Ramps the outer walls in `collection` over the joints with a fine zone. A ramped open wall keeps the direction
+// it was ramped in, as its two ends ramp differently.
 static void ramp_outer_walls(ExtrusionEntityCollection &collection, const ZoneDistance &distance, double ramp, double pass_height)
 {
     for (ExtrusionEntity *&entity : collection.entities) {
@@ -637,6 +640,7 @@ static void ramp_outer_walls(ExtrusionEntityCollection &collection, const ZoneDi
                 auto *multi      = new ExtrusionMultiPath();
                 multi->paths     = std::move(split);
                 multi->inset_idx = entity->inset_idx;
+                multi->set_reverse();
                 delete entity;
                 entity = multi;
             }
@@ -647,6 +651,8 @@ static void ramp_outer_walls(ExtrusionEntityCollection &collection, const ZoneDi
         ExtrusionPaths out;
         for (const ExtrusionPath &path : *paths)
             append(out, path.role() == erExternalPerimeter ? ramp_outer_wall(path, distance, ramp, pass_height) : ExtrusionPaths{ path });
+        if (out.size() != paths->size() && ! entity->is_loop())
+            entity->set_reverse();
         *paths = std::move(out);
     }
 }
@@ -1138,8 +1144,6 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
     fine_zones         = union_(fine_zones);
     for (LayerRegion *layerm : m_regions) {
         remove_extrusions_over(layerm->perimeters, fine_zones);
-        for (const Ramp &ramp : ramps)
-            ramp_outer_walls(layerm->perimeters, ZoneDistance(ramp.zone), ramp.length, ramp.pass_height);
         remove_extrusions_over(layerm->thin_fills, fine_zones);
         // Cutting the fine zones out of the fill areas may leave slivers, on which the gap fill of the infill, built on a
         // Voronoi diagram, fails: they are too thin to fill anyway.
@@ -1175,6 +1179,12 @@ void Layer::apply_refinement(const std::map<int, std::vector<ExPolygons>> &sub_s
             it->extrusions.entities.emplace_back(stretches[idx].release());
         }
     }
+
+    // The walls ramp once they are spliced, as splicing may turn a wall round and its ramps go by the direction it is
+    // printed in.
+    for (LayerRegion *layerm : m_regions)
+        for (const Ramp &ramp : ramps)
+            ramp_outer_walls(layerm->perimeters, ZoneDistance(ramp.zone), ramp.length, ramp.pass_height);
 }
 
 void Layer::export_region_slices_to_svg(const char *path) const

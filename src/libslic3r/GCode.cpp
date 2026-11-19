@@ -7803,18 +7803,21 @@ LayerResult GCode::process_layer(
                         // A pass that is not chained starts with a lift, as does each chain.
                         const bool lift = last == nullptr || extrusion.chain != last->chain ||
                             (extrusion.chain < 0 && (extrusion.pass != last->pass || extrusion.layerm != last->layerm));
+                        // A pass above the one before is reached from above, as a layer is, so that play in the Z axis
+                        // does not change its height against the others. The pass before is judged by its height, not
+                        // by where the nozzle is: a pass ending in the tip of a scarf wedge leaves it lower. The travel
+                        // rises after the retraction and the wipe (see travel_to()), which belong on the tip.
+                        const bool higher = ! lift && last->pass->turn_offsets.empty() && extrusion.pass->turn_offsets.empty() &&
+                            extrusion.pass->z_offset > last->pass->z_offset + EPSILON;
                         last = &extrusion;
                         m_config.apply(print.get_print_region(extrusion.layerm->region().print_region_id()).config());
+                        m_fine_wall_from_above = higher && m_config.layer_refinement_z_from_above.value;
                         const ExtrusionEntitiesPtr &entities = extrusion.pass->extrusions.entities;
                         const std::vector<const ExtrusionEntity*> region_extrusions(entities.begin(), entities.end());
                         if (extrusion.pass->turn_offsets.empty()) {
                             m_nominal_z = layer_nominal_z + extrusion.pass->z_offset;
                             if (lift)
                                 m_need_change_layer_lift_z = true;
-                            // A pass above the one before is reached from above, as a layer is, so that play in the Z
-                            // axis does not change its height against the others.
-                            else if (m_config.layer_refinement_z_from_above.value && m_nominal_z > m_writer.get_position().z() + EPSILON)
-                                gcode += m_writer.travel_to_z(m_nominal_z + 0.1, "approach fine wall pass from above", true);
                             std::unique_ptr<ExtrusionEntity> reversed_entity;
                             if (reversed) {
                                 reversed_entity.reset(entities[extrusion.idx]->clone());
@@ -7832,6 +7835,7 @@ LayerResult GCode::process_layer(
                     }
                     m_nominal_z                = layer_nominal_z;
                     m_need_change_layer_lift_z = true;
+                    m_fine_wall_from_above     = false;
                 }
 
                 // Sequential tool path ordering of multiple parts within the same object, aka. perimeter tracking (#5511)
@@ -9040,6 +9044,30 @@ std::string GCode::extrude_path(const ExtrusionPath& path, const std::string& de
             }
         } else
             m_wipe.path.reverse();
+        // Orca: A pass ending in the tip of a scarf wedge wipes 0.35 mm inwards, square to its end and at the height of
+        // the tip, as the prototype does: the wedge rises behind the tip, so a wipe back along the pass would run into
+        // it. Where the inside is not clear, the tip retracts without a wipe.
+        if (m_fine_wall_tip && m_layer != nullptr) {
+            const Points3 &points = path.polyline.points;
+            const Point    end    = path.last_point();
+            const Vec2d    along  = (end - Point(points[points.size() - 2].x(), points[points.size() - 2].y())).cast<double>();
+            m_wipe.reset_path();
+            if (along.norm() > SCALED_EPSILON) {
+                const Vec2d normal = Vec2d(-along.y(), along.x()).normalized();
+                const auto  inside = [this](const Point &point) {
+                    return std::any_of(m_layer->lslices.begin(), m_layer->lslices.end(),
+                                       [&point](const ExPolygon &expoly) { return expoly.contains(point); });
+                };
+                const auto  at     = [&end, &normal](double side, double distance) -> Point {
+                    return Point(end + (normal * (side * scale_(distance))).cast<coord_t>());
+                };
+                // The side whose points 0.35 mm and 1 mm off the end both lie inside the layer, if only one does.
+                const bool left  = inside(at(1., 0.35)) && inside(at(1., 1.));
+                const bool right = inside(at(-1., 0.35)) && inside(at(-1., 1.));
+                if (left != right)
+                    m_wipe.path = Polyline(end, at(left ? 1. : -1., 0.35));
+            }
+        }
     }
 
     return gcode;
@@ -9516,6 +9544,7 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
         }
         m_need_change_layer_lift_z = false;
     }
+    m_fine_wall_from_above = false;
 
     if (path.z_contoured && !path.polyline.lines().empty()) {
         double current_z = m_writer.get_position().z();
@@ -9546,6 +9575,9 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
     // region it meets, which is not refined itself.
     const bool fine_wall = m_layer != nullptr && m_layer->has_fine_walls &&
         (path.role() == erExternalPerimeter || path.role() == erPerimeter) && path.height < m_layer->height - EPSILON;
+    // Orca: A pass that ends lowered ends in the tip of a scarf wedge. The tip always retracts (see needs_retraction())
+    // and wipes inwards (see extrude_path()).
+    m_fine_wall_tip = fine_wall && path.z_contoured && path.polyline.points.size() >= 2 && path.polyline.points.back().z() < 0;
 
     // Orca: optimize for Klipper, set acceleration and jerk in one command
     unsigned int acceleration_i = 0;
@@ -9710,6 +9742,32 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
             speed = NOZZLE_CONFIG(support_interface_speed);
         } else {
             throw Slic3r::InvalidArgument("Invalid speed");
+        }
+        // Orca: The wall of the layer over the ramp of a scarf joint, thicker than a pass and thinner than the layer,
+        // follows layer_refinement_joint_speed of the refined region.
+        if (fine_wall && ! path.z_contoured && sloped == nullptr) {
+            const auto refined = std::find_if(m_layer->regions().begin(), m_layer->regions().end(),
+                                              [](const LayerRegion *layerm) { return ! layerm->refinement_passes.empty(); });
+            if (refined != m_layer->regions().end()) {
+                const PrintRegionConfig  &refined_config = (*refined)->region().config();
+                const FineWallJointSpeed  mode           = refined_config.layer_refinement_joint_speed.value;
+                const double pass_height = m_layer->height /
+                    layer_refinement_pass_count(m_layer->height, refined_config.layer_refinement_height.value);
+                if (mode != FineWallJointSpeed::Separate && path.height > pass_height + EPSILON) {
+                    const double wall_speed = NOZZLE_CONFIG(outer_wall_speed);
+                    if (mode == FineWallJointSpeed::Gradual) {
+                        // From the fine wall speed at the height of a pass to the wall speed at that of the layer.
+                        speed += (wall_speed - speed) * (path.height - pass_height) / (m_layer->height - pass_height);
+                    } else {
+                        // The flow of the wall: its flow follows its height, so its speed goes inversely, up to the
+                        // maximum speed of the machine.
+                        speed = wall_speed * m_layer->height / path.height;
+                        for (const double limit : { m_config.machine_max_speed_x.get_at(0), m_config.machine_max_speed_y.get_at(0) })
+                            if (limit > 0.)
+                                speed = std::min(speed, limit);
+                    }
+                }
+            }
         }
     }
     //BBS: if not set the speed, then use the filament_max_volumetric_speed directly
@@ -10819,6 +10877,14 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
     }
 
 
+    // Orca: A fine wall pass above the one before is approached from above, once the nozzle has retracted and wiped
+    // where the pass before ended.
+    if (m_fine_wall_from_above) {
+        m_fine_wall_from_above = false;
+        if (m_writer.get_position().z() < m_nominal_z + 0.1 - EPSILON)
+            gcode += m_writer.travel_to_z(m_nominal_z + 0.1, "approach fine wall pass from above", true);
+    }
+
     // if needed, write the gcode_label_objects_end then gcode_label_objects_start
     m_writer.add_object_change_labels(gcode);
 
@@ -10899,13 +10965,15 @@ LiftType GCode::to_lift_type(ZHopType z_hop_types) {
 
 bool GCode::needs_retraction(const Polyline &travel, ExtrusionRole role, LiftType& lift_type)
 {
-    if (travel.length() < scale_(FILAMENT_CONFIG(retraction_minimum_travel))) {
+    if (travel.length() < scale_(FILAMENT_CONFIG(retraction_minimum_travel)) && ! (m_fine_wall_tip && m_last_processor_extrusion_role == erFineWall)) {
         // skip retraction if the move is shorter than the configured threshold
         return false;
     }
     // Orca: A short travel from a fine wall goes without a retraction: on its thin passes the restart after each
     // retraction would show as a seam.
-    if (m_last_processor_extrusion_role == erFineWall && travel.length() < scale_(m_config.layer_refinement_travel_without_retraction.value))
+    // A pass ending in the tip of a scarf wedge always retracts, as the prototype does: the tip would ooze.
+    if (m_last_processor_extrusion_role == erFineWall && ! m_fine_wall_tip &&
+        travel.length() < scale_(m_config.layer_refinement_travel_without_retraction.value))
         return false;
 
     //BBS: input travel polyline must be in current plate coordinate system

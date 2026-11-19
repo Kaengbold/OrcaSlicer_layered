@@ -211,7 +211,8 @@ std::map<std::string, std::vector<SimpleSettingData>> SettingsFactory::PART_CATE
        {"layer_refinement_travel_without_retraction", "", 22},
        {"layer_refinement_fan_speed", "", 23},
        {"layer_refinement_wall_overlap", "", 24},
-       {"layer_refinement_z_from_above", "", 25}}}};
+       {"layer_refinement_z_from_above", "", 25},
+       {"layer_refinement_joint_speed", "", 26}}}};
 
 std::vector<std::string> SettingsFactory::get_options(const bool is_part)
 {

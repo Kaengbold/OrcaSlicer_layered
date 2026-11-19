@@ -503,6 +503,14 @@ static t_config_enum_values s_keys_map_SeamScarfType{
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(SeamScarfType)
 
 // Orca
+static t_config_enum_values s_keys_map_FineWallJointSpeed{
+    { "separate",      int(FineWallJointSpeed::Separate) },
+    { "gradual",       int(FineWallJointSpeed::Gradual) },
+    { "constant_flow", int(FineWallJointSpeed::ConstantFlow) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(FineWallJointSpeed)
+
+// Orca
 static t_config_enum_values s_keys_map_EnsureVerticalShellThickness{
     { "none",           int(EnsureVerticalShellThickness::evstNone) },
     { "ensure_critical_only",         int(EnsureVerticalShellThickness::evstCriticalOnly) },
@@ -4327,11 +4335,32 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0.));
 
+    def = this->add("layer_refinement_joint_speed", coEnum);
+    def->label = L("Fine wall joint speed");
+    def->category = L("Speed");
+    def->tooltip = L("How the speed of the wall changes over the ramp where a fine wall ends on a wall at the normal layer "
+                     "height.\n\n"
+                     "Separate: the ramp is printed at the fine wall speed, and the wall past it at the outer wall speed.\n"
+                     "Gradual: the speed rises with the ramp, from the fine wall speed to the outer wall speed, so that the "
+                     "flow rises smoothly.\n"
+                     "Constant flow: the ramp is printed with the flow of the outer wall, faster where it is thinner, up to "
+                     "the maximum speed of the machine, so that the flow does not change at the joint.");
+    def->enum_keys_map = &ConfigOptionEnum<FineWallJointSpeed>::get_enum_values();
+    def->enum_values.push_back("separate");
+    def->enum_values.push_back("gradual");
+    def->enum_values.push_back("constant_flow");
+    def->enum_labels.push_back(L("Separate"));
+    def->enum_labels.push_back(L("Gradual"));
+    def->enum_labels.push_back(L("Constant flow"));
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<FineWallJointSpeed>(FineWallJointSpeed::Separate));
+
     def = this->add("layer_refinement_travel_without_retraction", coFloat);
     def->label = L("Fine wall travel without retraction");
     def->category = L("Quality");
     def->tooltip = L("A travel from a fine wall shorter than this goes without a retraction, a wipe and a Z hop. On the thin passes "
-                     "of a fine wall broken into stretches, the restart after each retraction shows as a seam.\n\n"
+                     "of a fine wall broken into stretches, the restart after each retraction shows as a seam. A pass that ends "
+                     "in the thin tip of a scarf joint always retracts.\n\n"
                      "Set to 0 to retract as usual.");
     def->sidetext = L("mm");	// millimeters, CIS languages need translation
     def->min = 0;

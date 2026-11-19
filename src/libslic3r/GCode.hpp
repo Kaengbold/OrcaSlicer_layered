@@ -738,6 +738,10 @@ protected:
     const Layer                                                 *m_fine_wall_outline_layer { nullptr };
     std::shared_ptr<const AABBTreeLines::LinesDistancer<Linef3>> m_fine_wall_outline;
     float                                                        m_fine_wall_width { 0.f };
+    // Orca: The last extrusion was a pass of a fine wall ending in the tip of a scarf wedge.
+    bool                                                         m_fine_wall_tip { false };
+    // Orca: The next travel goes to a fine wall pass above the one before, to be approached from above.
+    bool                                                         m_fine_wall_from_above { false };
 
 
     /* Origin of print coordinates expressed in unscaled G-code coordinates.

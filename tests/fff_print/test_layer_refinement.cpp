@@ -224,8 +224,9 @@ TEST_CASE("A slope is refined over more than its outer wall", "[LayerRefinement]
 }
 
 // Slices a 20 mm cube with 2 walls at 0.2 mm, with a modifier over its side at x = 0 only that sets the fine wall
-// layer height, if any, and the scarf length.
-static void slice_one_side_refined(Print &print, double refinement_height, double scarf_length)
+// layer height, if any, and the scarf length, with further settings for the whole print.
+static void slice_one_side_refined(Print &print, double refinement_height, double scarf_length,
+                                   std::initializer_list<ConfigBase::SetDeserializeItem> more = {})
 {
     DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
     config.set_deserialize_strict({
@@ -235,6 +236,7 @@ static void slice_one_side_refined(Print &print, double refinement_height, doubl
         {"sparse_infill_density", "15%"},
         {"layer_refinement_height", "0"},
     });
+    config.set_deserialize_strict(more);
     Model        model;
     ModelObject *object = model.add_object();
     object->add_volume(make_cube(20., 20., 20.));
@@ -635,4 +637,131 @@ TEST_CASE("All passes of a layer get the same speed on an overhang", "[LayerRefi
         ++ compared;
     }
     CHECK(compared > 0);
+}
+
+TEST_CASE("A pass ending in a scarf wedge retracts at its tip before the nozzle rises", "[LayerRefinement]")
+{
+    // A cube refined on one side with a 3 mm scarf: each lower pass ends in the tip of a wedge, which it prints going
+    // down. Even with short travels allowed to go without a retraction, the tip retracts, and the nozzle rises, also to
+    // approach the next pass from above, only after that.
+    Print print;
+    slice_one_side_refined(print, pass_height, 3.,
+                           {{"layer_refinement_travel_without_retraction", "50"}, {"layer_refinement_z_from_above", "1"}});
+    const std::string  gcode = Test::gcode(print);
+    std::istringstream lines(gcode);
+    std::string        role;
+    double             z = 0., last_extrusion_z = 0., tip_z = 0.;
+    // After a fine wall extrusion that went down: whether the nozzle retracted, and whether it travelled away.
+    bool               at_tip = false, retracted = false, travelled = false;
+    size_t             tips = 0, lifted_before_retraction = 0, not_retracted = 0;
+    for (std::string line; std::getline(lines, line);) {
+        if (line.rfind(";TYPE:", 0) == 0) {
+            role = line.substr(6);
+            continue;
+        }
+        if (line.rfind("G1 ", 0) != 0)
+            continue;
+        const std::string move = line.substr(0, line.find(';'));
+        if (const size_t pos = move.find(" Z"); pos != std::string::npos)
+            z = std::atof(move.c_str() + pos + 2);
+        double e = 0.;
+        if (const size_t pos = move.find(" E"); pos != std::string::npos)
+            e = std::atof(move.c_str() + pos + 2);
+        if (e > 0. && move.find(" X") != std::string::npos) {
+            if (at_tip && travelled) {
+                ++ tips;
+                if (! retracted)
+                    ++ not_retracted;
+            }
+            at_tip           = role == "Fine wall" && z < last_extrusion_z - 1e-4;
+            tip_z            = z;
+            retracted        = false;
+            travelled        = false;
+            last_extrusion_z = z;
+        } else if (at_tip) {
+            if (e < 0.)
+                retracted = true;
+            else if (z > tip_z + 1e-4 && ! retracted)
+                ++ lifted_before_retraction;
+            if (move.find(" X") != std::string::npos || move.find(" Y") != std::string::npos)
+                travelled = true;
+        }
+    }
+    CHECK(tips > 0);
+    CHECK(not_retracted == 0);
+    CHECK(lifted_before_retraction == 0);
+}
+
+TEST_CASE("The wall of a layer rises fuller where it leaves a fine zone than it falls where it enters one", "[LayerRefinement]")
+{
+    // A cube refined on one side with a 3 mm scarf: the top line of a layer runs from the fine side over a ramp up to the
+    // layer height and back down over the other ramp. Leaving the fine zone, it is pre-pressurised (u^0.8 with a bump),
+    // entering it, linear: its mean height is the larger on the rise, whichever way the line is printed.
+    Print print;
+    slice_one_side_refined(print, pass_height, 3.);
+    double rising_height = 0., rising_length = 0., falling_height = 0., falling_length = 0.;
+    for (const LayerRegion *region : middle_layer(print).regions()) {
+        std::vector<const ExtrusionPath*> paths;
+        collect_paths(region->perimeters, paths);
+        for (size_t idx = 0; idx < paths.size(); ++ idx) {
+            const ExtrusionPath &path = *paths[idx];
+            const ExtrusionPath &prev = *paths[(idx + paths.size() - 1) % paths.size()];
+            if (path.role() != erExternalPerimeter || path.height <= pass_height + 1e-3 || path.height >= layer_height - 1e-3 ||
+                prev.role() != erExternalPerimeter)
+                continue;
+            const double length = unscale<double>(path.length());
+            (path.height > prev.height ? rising_height : falling_height) += path.height * length;
+            (path.height > prev.height ? rising_length : falling_length) += length;
+        }
+    }
+    REQUIRE(rising_length > 0.);
+    REQUIRE(falling_length > 0.);
+    CHECK(rising_height / rising_length > falling_height / falling_length + 0.005);
+}
+
+TEST_CASE("The joint speed sets how the speed follows the ramp of a scarf joint", "[LayerRefinement]")
+{
+    // Fine walls at 20 mm/s, the outer wall at 60 mm/s, a machine limit of 200 mm/s and no limit from the volumetric
+    // speed or the layer time. Over the ramp, the wall of the layer is between the height of a pass and that of the
+    // layer, and prints as a fine wall.
+    const std::string mode = GENERATE("separate", "gradual", "constant_flow");
+    Print             print;
+    slice_one_side_refined(print, pass_height, 3.,
+                           {{"layer_refinement_speed", "20"},
+                            {"outer_wall_speed", "60"},
+                            {"machine_max_speed_x", "200,200"},
+                            {"machine_max_speed_y", "200,200"},
+                            {"filament_max_volumetric_speed", "100"},
+                            {"slow_down_for_layer_cooling", "0"},
+                            {"enable_overhang_speed", "0"},
+                            {"layer_refinement_joint_speed", mode}});
+    const std::string  gcode = Test::gcode(print);
+    std::istringstream lines(gcode);
+    std::string        role;
+    double             height = 0., feedrate = 0.;
+    size_t             ramp_moves = 0;
+    for (std::string line; std::getline(lines, line);) {
+        if (line.rfind(";TYPE:", 0) == 0)
+            role = line.substr(6);
+        else if (line.rfind(";HEIGHT:", 0) == 0)
+            height = std::atof(line.c_str() + 8);
+        else if (line.rfind("G1 ", 0) == 0) {
+            const std::string move = line.substr(0, line.find(';'));
+            if (const size_t pos = move.find(" F"); pos != std::string::npos)
+                feedrate = std::atof(move.c_str() + pos + 2);
+            const size_t e = move.find(" E");
+            if (role != "Fine wall" || e == std::string::npos || std::atof(move.c_str() + e + 2) <= 0. ||
+                move.find(" X") == std::string::npos || height <= pass_height + 1e-3 || height >= layer_height - 1e-3)
+                continue;
+            ++ ramp_moves;
+            const double speed = feedrate / 60.;
+            if (mode == "separate")
+                CHECK_THAT(speed, WithinRel(20., 0.01));
+            else if (mode == "gradual")
+                CHECK_THAT(speed, WithinRel(20. + 40. * (height - pass_height) / (layer_height - pass_height), 0.02));
+            else
+                CHECK_THAT(speed, WithinRel(std::min(60. * layer_height / height, 200.), 0.02));
+        }
+    }
+    CHECK(ramp_moves > 0);
 }

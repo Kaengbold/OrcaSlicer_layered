@@ -1941,6 +1941,7 @@ bool PrintObject::invalidate_state_by_config_options(
             || opt_key == "internal_solid_infill_speed"
             || opt_key == "top_surface_speed"
             || opt_key == "layer_refinement_speed"
+            || opt_key == "layer_refinement_joint_speed"
             || opt_key == "layer_refinement_acceleration"
             || opt_key == "layer_refinement_chain_passes"
             || opt_key == "layer_refinement_travel_without_retraction"
