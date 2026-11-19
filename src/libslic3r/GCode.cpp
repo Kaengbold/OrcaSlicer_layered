@@ -3559,10 +3559,15 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     if (print.config().spiral_mode.value)
         m_spiral_vase = make_unique<SpiralVase>(print.config());
 
-    // Orca: The flow of a wall changes over every scarf joint of a fine wall, so a print with fine walls is smoothed at
-    // 300 mm³/s² where the extrusion rate smoothing is not set.
+    // Orca: The flow of a wall changes over every joint of a fine wall, so a print with fine walls whose joint speed is
+    // Smoothed is smoothed at 300 mm³/s² where the extrusion rate smoothing is not set.
     const bool fine_walls = std::any_of(print.objects().begin(), print.objects().end(), [](const PrintObject *object) {
-        return std::any_of(object->layers().begin(), object->layers().end(), [](const Layer *layer) { return layer->has_fine_walls; });
+        return std::any_of(object->layers().begin(), object->layers().end(), [](const Layer *layer) {
+            return layer->has_fine_walls && std::any_of(layer->regions().begin(), layer->regions().end(), [](const LayerRegion *layerm) {
+                return ! layerm->refinement_passes.empty() &&
+                    layerm->region().config().layer_refinement_joint_speed.value == FineWallJointSpeed::Smoothed;
+            });
+        });
     });
     if (print.config().max_volumetric_extrusion_rate_slope.value > 0) {
     		m_pressure_equalizer = make_unique<PressureEqualizer>(print.config());
@@ -9768,7 +9773,7 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
             const FineWallJointSpeed mode        = fine_wall_config->layer_refinement_joint_speed.value;
             const double             pass_height = m_layer->height /
                 layer_refinement_pass_count(m_layer->height, fine_wall_config->layer_refinement_height.value);
-            if (mode != FineWallJointSpeed::Separate && path.height > pass_height + EPSILON) {
+            if ((mode == FineWallJointSpeed::Gradual || mode == FineWallJointSpeed::ConstantFlow) && path.height > pass_height + EPSILON) {
                 // The speed the wall of the layer is printed at past the ramp, within the maximum volumetric speed.
                 const double wall_mm3_per_mm = _mm3_per_mm * m_layer->height / path.height;
                 const double max_volumetric  = FILAMENT_CONFIG(filament_max_volumetric_speed);

@@ -106,17 +106,21 @@ scarf of the prototype (`scripts/layer_combination_coupons.py`):
   0.35 mm inwards, square to its end and at the height of the tip, as the wedge
   rises behind it. Only then does the nozzle rise to travel.
 - `layer_refinement_joint_speed` sets the speed of the wall of the layer over
-  the ramp: *separate* prints it at the fine wall speed, and the wall past it at
+  the ramp: *smoothed*, the default, is *separate* with the extrusion rate
+  smoothing below; *separate* prints it at the fine wall speed, and the wall past it at
   the outer wall speed; *gradual* raises the speed with the height of the ramp
   from one to the other, so that the flow rises smoothly; *constant flow*
   prints it with the flow of the outer wall, faster the thinner it is, up to
   the maximum speed of the machine, so that the flow does not change at the
   joint. The outer wall speed here is the one the wall prints at, within the
   maximum volumetric speed of the filament.
-- The flow still changes over every joint, so a print with fine walls is
-  smoothed at 300 mm³/s² where `max_volumetric_extrusion_rate_slope` is 0, and
-  is then printed without arcs, as the smoothing reads straight moves only.
-  Calibration prints, which turn the smoothing off, are left alone.
+- The flow still changes over every joint, so a print with fine walls whose
+  joint speed is *smoothed* is smoothed at 300 mm³/s² where
+  `max_volumetric_extrusion_rate_slope` is 0, and is then printed without arcs,
+  as the smoothing reads straight moves only. The smoothing also evens out the
+  flow between neighbouring lines of a kind, so it lowers the speed along the
+  steps of a falling ramp; the other modes leave it off. Calibration prints,
+  which turn the smoothing off, are left alone.
 
 ### Helices
 

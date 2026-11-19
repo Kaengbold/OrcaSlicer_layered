@@ -1247,12 +1247,10 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, in
 
     for (const char *key : {"layer_refinement_scarf_length", "layer_refinement_joint_overlap", "layer_refinement_min_step",
                              "layer_refinement_travel_without_retraction", "layer_refinement_fan_speed", "layer_refinement_wall_overlap",
-                             "layer_refinement_z_from_above", "layer_refinement_chain_passes", "layer_refinement_helical"})
+                             "layer_refinement_z_from_above", "layer_refinement_chain_passes", "layer_refinement_helical",
+                             "layer_refinement_joint_speed"})
         toggle_line(key, config->opt_float("layer_refinement_height") > 0., -1,
                     _L("Set a fine wall layer height to use this setting."));
-    toggle_line("layer_refinement_joint_speed",
-                config->opt_float("layer_refinement_height") > 0. && config->opt_float("layer_refinement_scarf_length") > 0., -1,
-                _L("Set a fine wall layer height and a fine wall scarf length to use this setting."));
 
     // Get the current fuzzy skin state
     bool has_fuzzy_skin =config->opt_enum<FuzzySkinType>("fuzzy_skin") != FuzzySkinType::Disabled_fuzzy;
