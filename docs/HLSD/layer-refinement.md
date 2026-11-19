@@ -163,13 +163,13 @@ A wall thinner than a refined layer, which is a pass or the wall of the layer
 thinned over a scarf, is printed as a fine wall whatever region it belongs to: the
 top pass is spliced into the wall of the region it meets, which is not refined
 itself. It is printed with `layer_refinement_speed` and
-`layer_refinement_acceleration`, unless they overhang. A pass rests on the pass
-under it, not on the layer below, so its overhang speed and fan are judged against
-the outline of that pass: each layer is sliced once more at the middle of a pass
-under it for its lowest pass, and the top passes spliced into the walls of the layer
-use the outline under the top pass (`Layer::refinement_top_support`). On a slope
-every pass then steps out alike over the one under it, and all passes of a layer
-get the same speed and fan. At 0 they follow the outer and inner wall
+`layer_refinement_acceleration`, unless they overhang. A fine wall gets the
+overhang speed and fan of the wall of the layer it replaces: each of its points is
+measured from the nearest point of the outline of its layer against the layer below
+(`FineWallBoundaries`). The passes of a layer and the turns of a helix lie at
+slightly different places, which would each tip the speed and fan their own way;
+measured from the outline, all of them print alike over the same stretch of it.
+At 0 the speed and acceleration follow the outer and inner wall
 values; the settings page then shows the outer wall value in their fields, while
 the stored value stays 0 until it is edited.
 

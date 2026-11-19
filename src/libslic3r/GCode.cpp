@@ -7820,21 +7820,18 @@ LayerResult GCode::process_layer(
                                 reversed_entity.reset(entities[extrusion.idx]->clone());
                                 reversed_entity->reverse();
                             }
-                            m_fine_wall_support = &extrusion.pass->support;
                             gcode += this->extrude_entity(reversed ? *reversed_entity : *entities[extrusion.idx], "perimeter", -1., region_extrusions);
                         } else {
                             for (size_t turn = 0; turn < entities.size(); ++ turn) {
                                 m_nominal_z = layer_nominal_z + extrusion.pass->turn_offsets[turn];
                                 if (turn == 0 && lift)
                                     m_need_change_layer_lift_z = true;
-                                m_fine_wall_support = &extrusion.pass->support;
                                 gcode += this->extrude_entity(*entities[turn], "perimeter", -1., region_extrusions);
                             }
                         }
                     }
                     m_nominal_z                = layer_nominal_z;
                     m_need_change_layer_lift_z = true;
-                    m_fine_wall_support        = nullptr;
                 }
 
                 // Sequential tool path ordering of multiple parts within the same object, aka. perimeter tracking (#5511)
@@ -9547,7 +9544,7 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
     // Orca: A wall thinner than a refined layer is a pass of the fine wall, or the wall of the layer thinned over a
     // scarf joint. It is told by the layer, not by the region printed: the top pass is spliced into the wall of the
     // region it meets, which is not refined itself.
-    const bool fine_wall = m_layer != nullptr && ! m_layer->refinement_top_support.empty() &&
+    const bool fine_wall = m_layer != nullptr && m_layer->has_fine_walls &&
         (path.role() == erExternalPerimeter || path.role() == erPerimeter) && path.height < m_layer->height - EPSILON;
 
     // Orca: optimize for Klipper, set acceleration and jerk in one command
@@ -9858,19 +9855,15 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
             
             ConfigOptionPercents         overhang_overlap_levels({90, 75, 50, 25, 13, 0});
 
-            // Orca: A pass of a fine wall rests on the pass under it, not on the layer below: its overhang is judged against
-            // the outline of that pass. On a slope every pass then steps out alike over the one under it, and all passes of
-            // a layer get the same speed and fan.
-            const ExPolygons *fine_wall_support = nullptr;
-            if (fine_wall && m_layer != nullptr)
-                fine_wall_support = m_fine_wall_support != nullptr ? m_fine_wall_support : &m_layer->refinement_top_support;
-            if (fine_wall_support != nullptr && ! fine_wall_support->empty()) {
-                if (m_fine_wall_boundaries_layer != m_layer || m_fine_wall_boundaries_source != fine_wall_support) {
-                    m_fine_wall_boundaries_layer  = m_layer;
-                    m_fine_wall_boundaries_source = fine_wall_support;
-                    m_fine_wall_boundaries        = std::make_shared<const AABBTreeLines::LinesDistancer<Linef3>>(to_unscaled_linesf3(*fine_wall_support));
+            // Orca: A line of a fine wall gets the overhang speed and fan of the wall of the layer it replaces: it is measured
+            // from the outline of the layer against the layer below. All passes of a layer and all turns of a helix then
+            // print alike where they run over the same stretch of the outline.
+            if (fine_wall) {
+                if (m_fine_wall_outline_layer != m_layer) {
+                    m_fine_wall_outline_layer = m_layer;
+                    m_fine_wall_outline       = std::make_shared<const AABBTreeLines::LinesDistancer<Linef3>>(to_unscaled_linesf3(m_layer->lslices));
                 }
-                m_extrusion_quality_estimator.set_override_boundaries(m_fine_wall_boundaries);
+                m_extrusion_quality_estimator.set_fine_wall_outline(m_fine_wall_outline);
             }
             const ExtrusionPath &estimated_path = path;
 
@@ -9927,7 +9920,7 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
                                                                               ref_speed, speed, NOZZLE_CONFIG(slowdown_for_curled_perimeters),
                                                                               fan_overlap_threshold);
             }
-            m_extrusion_quality_estimator.set_override_boundaries(nullptr);
+            m_extrusion_quality_estimator.set_fine_wall_outline(nullptr);
             if (!NOZZLE_CONFIG(enable_overhang_speed))
                 for (ProcessedPoint &point : new_points)
                     point.speed = speed;

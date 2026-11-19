@@ -306,6 +306,7 @@ namespace AABBTreeLines {
     template <typename LineType>
     class LinesDistancer {
     public:
+        using Line = LineType;
         using Scalar = typename LineType::Scalar;
         using Floating = typename std::conditional<std::is_floating_point<Scalar>::value, Scalar, double>::type;
 

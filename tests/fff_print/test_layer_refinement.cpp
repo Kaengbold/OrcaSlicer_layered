@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
@@ -21,6 +22,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace Slic3r;
@@ -556,7 +558,9 @@ TEST_CASE("A refined layer keeps its top surfaces ironed", "[LayerRefinement]")
 TEST_CASE("All passes of a layer get the same speed on an overhang", "[LayerRefinement]")
 {
     // A 20 mm box leaning out by 2 mm per mm on one side, refined whole, with overhang speeds and no slowdown for the
-    // layer time. Each pass steps out over the one under it alike, so the passes of a layer print at the same speeds.
+    // layer time. Every pass, and every turn of a helix, is judged as the wall of the layer it replaces, so the passes
+    // of a layer print each side of the box at the same speeds.
+    const std::string helical = GENERATE("0", "1");
     DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
     config.set_deserialize_strict({
         {"layer_height", std::to_string(layer_height)},
@@ -565,16 +569,22 @@ TEST_CASE("All passes of a layer get the same speed on an overhang", "[LayerRefi
         {"enable_overhang_speed", "1"},
         {"slow_down_for_layer_cooling", "0"},
         {"layer_refinement_height", std::to_string(pass_height)},
+        {"layer_refinement_helical", helical},
     });
     const std::string gcode = Test::slice({TriangleMesh({ {0, 0, 0}, {20, 0, 0}, {20, 20, 0}, {0, 20, 0}, {0, 0, 5}, {30, 0, 5}, {30, 20, 5}, {0, 20, 5} },
                                                         { {0, 2, 1}, {0, 3, 2}, {4, 5, 6}, {4, 6, 7}, {0, 1, 5}, {0, 5, 4}, {1, 2, 6}, {1, 6, 5},
                                                           {2, 3, 7}, {2, 7, 6}, {3, 0, 4}, {3, 4, 7} })},
                                           config);
-    // Layer -> pass height -> the speeds its extrusions print at.
-    std::map<std::string, std::map<std::string, std::set<long>>> speeds;
+    // Layer and side of the box, by the direction of the move -> height of the pass or turn -> the speeds it prints at.
+    std::map<std::pair<std::string, std::pair<int, int>>, std::map<std::string, std::set<long>>> speeds;
     std::istringstream lines(gcode);
     std::string        layer, z, role;
     long               feedrate = 0;
+    double             x = 0., y = 0.;
+    const auto         value = [](const std::string &move, const char *axis, double &out) {
+        if (const size_t pos = move.find(axis); pos != std::string::npos)
+            out = std::atof(move.c_str() + pos + 2);
+    };
     for (std::string line; std::getline(lines, line);) {
         if (line.rfind(";Z:", 0) == 0)
             layer = line.substr(3);
@@ -586,13 +596,21 @@ TEST_CASE("All passes of a layer get the same speed on an overhang", "[LayerRefi
                 feedrate = std::lround(std::atof(move.c_str() + pos + 2));
             if (const size_t pos = move.find(" Z"); pos != std::string::npos)
                 z = move.substr(pos + 2, move.find(' ', pos + 1) - pos - 2);
-            if (role == "Fine wall" && move.find(" E") != std::string::npos && move.find(" X") != std::string::npos &&
-                std::atof(move.c_str() + move.find(" E") + 2) > 0.)
-                speeds[layer][z].insert(feedrate);
+            const double from_x = x, from_y = y;
+            double       e      = 0.;
+            value(move, " X", x);
+            value(move, " Y", y);
+            value(move, " E", e);
+            // The short moves joining the stretches of a pass belong to no side.
+            if (role == "Fine wall" && e > 0. && std::hypot(x - from_x, y - from_y) > 1.) {
+                const std::pair<int, int> side(int(std::lround((x - from_x) / std::hypot(x - from_x, y - from_y))),
+                                               int(std::lround((y - from_y) / std::hypot(x - from_x, y - from_y))));
+                speeds[{layer, side}][z].insert(feedrate);
+            }
         }
     }
     size_t compared = 0;
-    for (const auto &[layer_z, passes] : speeds) {
+    for (const auto &[layer_side, passes] : speeds) {
         if (passes.size() < 2)
             continue;
         for (const auto &[pass_z, pass_speeds] : passes)

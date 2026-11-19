@@ -733,12 +733,9 @@ protected:
     std::map<unsigned int, IslandOrderCacheEntry> m_ordering_cache;
 
     ExtrusionQualityEstimator m_extrusion_quality_estimator;
-    // Orca: The outline of the pass under the pass of a fine wall being printed, which its overhang is judged against,
-    // and the boundaries built from it for the layer they belong to.
-    const ExPolygons                                            *m_fine_wall_support { nullptr };
-    const Layer                                                 *m_fine_wall_boundaries_layer { nullptr };
-    const ExPolygons                                            *m_fine_wall_boundaries_source { nullptr };
-    std::shared_ptr<const AABBTreeLines::LinesDistancer<Linef3>> m_fine_wall_boundaries;
+    // Orca: The outline of the layer the lines of a fine wall are measured from for their overhang, and that layer.
+    const Layer                                                 *m_fine_wall_outline_layer { nullptr };
+    std::shared_ptr<const AABBTreeLines::LinesDistancer<Linef3>> m_fine_wall_outline;
 
 
     /* Origin of print coordinates expressed in unscaled G-code coordinates.

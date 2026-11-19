@@ -28,6 +28,7 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -47,10 +48,11 @@ struct NoKnownDistances
     template<typename P> const double *operator()(const P &) const { return nullptr; }
 };
 
+// BOUNDARIES is an AABBTreeLines::LinesDistancer, or a type with the same interface (see FineWallBoundaries).
 template<bool SCALED_INPUT, bool ADD_INTERSECTIONS, bool PREV_LAYER_BOUNDARY_OFFSET, bool SIGNED_DISTANCE, bool CURVATURE = true,
-         typename POINTS, typename L, typename KNOWN_DISTANCES = NoKnownDistances>
-std::vector<ExtendedPoint<L::Dim>> estimate_points_properties(const POINTS&                           input_points,
-                                                              const AABBTreeLines::LinesDistancer<L>& unscaled_prev_layer,
+         typename POINTS, typename BOUNDARIES, typename KNOWN_DISTANCES = NoKnownDistances>
+std::vector<ExtendedPoint<BOUNDARIES::Line::Dim>> estimate_points_properties(const POINTS&                           input_points,
+                                                              const BOUNDARIES&                       unscaled_prev_layer,
                                                               float                                   flow_width,
                                                               float                                   max_line_length = -1.0f,
                                                               float                                   min_distance    = -1.0f,
@@ -63,6 +65,7 @@ std::vector<ExtendedPoint<L::Dim>> estimate_points_properties(const POINTS&     
                                                               // Returns an input point's signed distance if already known, else nullptr.
                                                               const KNOWN_DISTANCES&                  known_distance = KNOWN_DISTANCES{})
 {
+    using L = typename BOUNDARIES::Line;
     bool   looped     = input_points.front() == input_points.back();
     std::function<size_t(size_t,size_t)> get_prev_index = [](size_t idx, size_t count) {
         if (idx > 0) {
@@ -99,14 +102,14 @@ std::vector<ExtendedPoint<L::Dim>> estimate_points_properties(const POINTS&     
     // print quality.
     double min_spacing = flow_width*0.25;
 
-    using AABBScalar = typename AABBTreeLines::LinesDistancer<L>::Scalar;
+    using AABBScalar = typename BOUNDARIES::Scalar;
     using Vec        = Eigen::Matrix<double, L::Dim, 1, Eigen::DontAlign>;
     if (input_points.empty())
         return {};
     float boundary_offset = PREV_LAYER_BOUNDARY_OFFSET ? 0.5 * flow_width : 0.0f;
     auto  maybe_unscale   = [](const P& p) -> Vec { return SCALED_INPUT ? unscaled(p) : p.template cast<double>(); };
 
-    using Distance = typename AABBTreeLines::LinesDistancer<L>::Floating;
+    using Distance = typename BOUNDARIES::Floating;
     auto input_distance = [&unscaled_prev_layer, &known_distance](const P &input, const Vec &position) -> Distance {
         if (const double *known = known_distance(input))
             return Distance(*known);
@@ -487,6 +490,50 @@ struct ProcessedPoint
     float overlap = 1.0f;
 };
 
+// Orca: The layer below as a line of a fine wall is measured against it: from the point of the outline of its own layer
+// nearest to it, as the wall of the layer the fine wall replaces would be. The passes of a layer, and the turns of a
+// helix, lie at slightly different places, which would each tip the overhang speed and fan their own way; measured from
+// the outline, they all get those of that wall wherever they run over the same stretch of it. Without an outline, the
+// points are measured where they are.
+class FineWallBoundaries
+{
+public:
+    using Distancer = AABBTreeLines::LinesDistancer<Linef3>;
+    using Line      = Distancer::Line;
+    using Scalar    = Distancer::Scalar;
+    using Floating  = Distancer::Floating;
+    using Position  = Vec<Line::Dim, Scalar>;
+
+    // `half_width` is half the width of the line measured, which the estimate adds to the distances again: the wall of
+    // the layer overhangs by as much as its outline does.
+    FineWallBoundaries(const Distancer &lower, const Distancer *outline, double half_width) :
+        m_lower(lower), m_outline(outline), m_half_width(half_width) {}
+
+    template<bool SIGNED_DISTANCE> std::tuple<Floating, size_t, Vec<Line::Dim, Floating>> distance_from_lines_extra(const Position &point) const
+    {
+        if (m_outline != nullptr) {
+            const auto [distance, line_idx, nearest] = m_outline->distance_from_lines_extra<false>(point);
+            if (line_idx != size_t(-1)) {
+                auto out = m_lower.distance_from_lines_extra<SIGNED_DISTANCE>(Position(nearest.x(), nearest.y(), nearest.z()));
+                std::get<0>(out) -= m_half_width;
+                return out;
+            }
+        }
+        return m_lower.distance_from_lines_extra<SIGNED_DISTANCE>(point);
+    }
+
+    // Measured from the outline, a line crosses no boundary of its own: the estimate finds the changes by sampling.
+    template<bool sorted> std::vector<std::pair<Position, size_t>> intersections_with_line(const Line &line) const
+    {
+        return m_outline != nullptr ? std::vector<std::pair<Position, size_t>>() : m_lower.intersections_with_line<sorted>(line);
+    }
+
+private:
+    const Distancer &m_lower;
+    const Distancer *m_outline;
+    double           m_half_width;
+};
+
 class ExtrusionQualityEstimator
 {
     using Boundaries   = AABBTreeLines::LinesDistancer<Linef3>;
@@ -498,9 +545,9 @@ class ExtrusionQualityEstimator
     std::unordered_map<const PrintObject*, const Layer*>                      last_prepared_layers;
     std::vector<PrecomputedOverhangLayer>                                     precomputed_layers;
     const PrintObject                                                        *current_object;
-    // Orca: Set while a pass of a fine wall is estimated: the outline of the pass under it, which it rests on instead of
-    // the layer below. The distances precomputed for the layer and its curled lines do not apply then.
-    std::shared_ptr<const AABBTreeLines::LinesDistancer<Linef3>>              override_boundaries;
+    // Orca: Set while a line of a fine wall is estimated: the outline of its layer, which it is measured from (see
+    // FineWallBoundaries). The distances precomputed for the points of the layer and its curled lines do not apply then.
+    std::shared_ptr<const AABBTreeLines::LinesDistancer<Linef3>>              fine_wall_outline;
 
     const PrecomputedOverhangLayer *precomputed_for(const PrintObject *object) const
     {
@@ -517,8 +564,8 @@ class ExtrusionQualityEstimator
 
 public:
     void set_current_object(const PrintObject *object) { current_object = object; }
-    // Orca: See override_boundaries, nullptr to judge against the layer below again.
-    void set_override_boundaries(std::shared_ptr<const AABBTreeLines::LinesDistancer<Linef3>> boundaries) { override_boundaries = std::move(boundaries); }
+    // Orca: See fine_wall_outline, nullptr to measure the points where they are again.
+    void set_fine_wall_outline(std::shared_ptr<const AABBTreeLines::LinesDistancer<Linef3>> outline) { fine_wall_outline = std::move(outline); }
 
     // Takes the data computed ahead for the layer about to be generated, replacing the previous layer's.
     void set_precomputed_layers(std::vector<PrecomputedOverhangLayer> &&layers) { precomputed_layers = std::move(layers); }
@@ -627,10 +674,10 @@ public:
         // Precomputed distances hold only if they were measured against the layer prev_layer_boundaries is built from.
         const std::unordered_map<Point3, double, Point3Hash> *known = nullptr;
         if (const PrecomputedOverhangLayer *precomputed = precomputed_for(current_object);
-            ! override_boundaries && precomputed != nullptr && precomputed->layer->lower_layer == prev_layer_sources[current_object])
+            ! fine_wall_outline && precomputed != nullptr && precomputed->layer->lower_layer == prev_layer_sources[current_object])
             known = &precomputed->distances;
-        const Boundaries  &prev_boundaries = override_boundaries ? *override_boundaries : or_empty(prev_layer_boundaries[current_object]);
-        const CurledLines &prev_curled     = override_boundaries ? or_empty(std::shared_ptr<const CurledLines>()) :
+        const FineWallBoundaries prev_boundaries(or_empty(prev_layer_boundaries[current_object]), fine_wall_outline.get(), 0.5 * path.width);
+        const CurledLines       &prev_curled = fine_wall_outline ? or_empty(std::shared_ptr<const CurledLines>()) :
                                                                    or_empty(prev_curled_extrusions[current_object]);
         auto known_distance = [known](const Point3 &point) -> const double * {
             if (known == nullptr)
