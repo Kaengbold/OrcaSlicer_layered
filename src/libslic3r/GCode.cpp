@@ -9765,10 +9765,13 @@ std::string GCode::_extrude_piece(const ExtrusionPath &path, const std::string &
             const double pass_height  = layer_height /
                 layer_refinement_pass_count(layer_height, fine_wall_config->layer_refinement_height.value);
             if (path.height > pass_height + EPSILON && layer_height > pass_height + EPSILON) {
-                // The section of a line of this width at a height, scaled to the flow of this path, ratios included.
-                const auto section = [&path, &_mm3_per_mm](double height) {
+                // The section of a line of this width at a height, scaled to the flow of the wall of the layer, ratios
+                // included. A piece of the ramp has the flow of that wall scaled by its height (ramp_outer_wall()), so
+                // that flow, and the speed of the ramp from it, is the same on all its pieces.
+                const double layer_flow = _mm3_per_mm * layer_height / path.height;
+                const auto   section    = [&path, layer_flow, layer_height](double height) {
                     const auto area = [&path](double h) { return h * std::max(path.width - h * (1. - 0.25 * PI), 0.5 * h); };
-                    return _mm3_per_mm * area(height) / area(path.height);
+                    return layer_flow * area(height) / area(layer_height);
                 };
                 // The speed of the wall past the ramp, within the maximum volumetric speed.
                 const double max_volumetric = FILAMENT_CONFIG(filament_max_volumetric_speed);
